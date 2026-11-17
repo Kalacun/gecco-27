@@ -1,0 +1,28 @@
+#line 1 "/Users/aleks/gecco2027-electricity/ea_energija/prevodi/git_201de19e81e2_src_64d61381357c_nacrt_0_red_0/prevod_info.json"
+{
+  "oznaka_prevoda": "git:201de19e81e2 src:64d61381357c nacrt:0 red:0",
+  "git_revizija": "201de19e81e22994486527f4506de7fc5ec356e1",
+  "git_spremembe": false,
+  "sha256_izvornih": {
+    "ea_energija.ino": "5b30869d38d2f794ca2ab879706b5f491607ec72a0505b3881729d8a7aecac13",
+    "ea_jedro.h": "8f742026a9d72fbbe0ff999191d68bd0ebf773da096b25628c75bbcb17b85265",
+    "ea_premiki.h": "882cd95f8103366cf804f397e5e4e462c8a923dbdf7b421f37fa22d98f7b12be"
+  },
+  "sha256_skupna": "64d61381357cc2fddfacc140387e90831a116c2ef5f4d77560d703e9dcc15392",
+  "nacrt": 0,
+  "vrstni_red": 0,
+  "fqbn": "esp32:esp32:esp32:CPUFreq=240,FlashMode=qio,FlashFreq=80,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1",
+  "zastavice": "-DNACRT=0 -DVRSTNI_RED=0 -Wdouble-promotion -Wfloat-conversion",
+  "opozorila": "--warnings all -Wdouble-promotion -Wfloat-conversion",
+  "arduino_cli": "arduino-cli  Version: 1.5.1 Commit: 01f3d4f2b Date: 2026-06-05T10:21:41Z",
+  "jedra": [
+    "ID          Installed Latest Name",
+    "arduino:avr 1.8.8     1.8.8  Arduino AVR Boards",
+    "esp32:esp32 3.3.12    3.3.12 esp32"
+  ],
+  "velikost_programa_B": 345316,
+  "sha256_binarne": "a7f11783f28ebac76ff0f17bd06864ac653176bc3dc4e6797da13e22836c82a2",
+  "cas_prevoda": "2026-11-16 17:45:53 +0100",
+  "python": "3.15.0",
+  "platforma": "darwin"
+}

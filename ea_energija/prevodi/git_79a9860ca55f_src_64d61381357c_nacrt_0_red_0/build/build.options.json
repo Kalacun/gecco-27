@@ -1,0 +1,10 @@
+{
+  "additionalFiles": "../..,../..,../..,../..,../..,../..,../..,../..,../..,../../..,../../../..",
+  "builtInLibrariesFolders": "/Users/aleks/Library/Arduino15/libraries",
+  "compiler.optimization_flags": "-Os",
+  "customBuildProperties": "compiler.cpp.extra_flags=-DNACRT=0 -DVRSTNI_RED=0 -Wdouble-promotion -Wfloat-conversion",
+  "fqbn": "esp32:esp32:esp32:CPUFreq=240,FlashMode=qio,FlashFreq=80,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1",
+  "hardwareFolders": "/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12,/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12",
+  "otherLibrariesFolders": "/Users/aleks/Documents/Arduino/libraries",
+  "sketchLocation": "/Users/aleks/gecco2027-electricity/ea_energija"
+}

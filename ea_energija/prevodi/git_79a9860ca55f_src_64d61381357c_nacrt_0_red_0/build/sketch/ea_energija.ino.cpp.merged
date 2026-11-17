@@ -1,0 +1,679 @@
+#include <Arduino.h>
+#line 1 "/Users/aleks/gecco2027-electricity/ea_energija/ea_energija.ino"
+// ====================================================================
+//  DE, jDE in L-SHADE na ESP32 - meritev porabe energije
+//  Plošča: "ESP32 Dev Module". Prevajanje in nalaganje: prevedi.py
+//  (glej LAB_GUIDE.md); nastavitve plošče so zapisane tam in v
+//  prevod_info.json vsakega prevoda.
+//
+//  EN NALOG PROGRAMA = VSI POSKUSI (tabela POSKUSI spodaj: funkcija, D,
+//  način proračuna in proračun). Poskusi tečejo zaporedoma, brez posega
+//  človeka, napaja jih samo RIGOL.
+//
+//  Protokol:
+//    0) ZACETNO_SPANJE_S light sleep po vklopu (ustalitev napajanja)
+//    za vsak poskus (funkcija, D, način, proračun):
+//      1) OGREVANJE zagonov vsakega algoritma - izvedejo se in zapišejo
+//         kot vsi ostali, a so označeni (ogrev=1) in se ne analizirajo
+//      2) ZAGONOV blokov; v vsakem bloku vsak algoritem enkrat, vrstni
+//         red po VRSTNI_RED (naključen ali uravnotežen, pravili v ea_jedro.h)
+//      vsak zagon:  SPANJE_S light sleep (počitek + bazna poraba)
+//                   optimizacija do proračuna (merilno okno, GPIO4 = 1):
+//                     način FE  - natanko FE_max evalvacij,
+//                     način CAS - čas T (ura se bere vsakih 16 evalvacij)
+//                   1 s light sleep, zapis rezultata v flash
+//    nato: deep sleep (tok pade skoraj na nič)
+//
+//  Pravičnost: enak proračun, enako seme za vse algoritme v istem bloku
+//  (skupna naključna števila), isti počitek pred vsakim zagonom, ista
+//  ploščica in nastavitve.
+//
+//  Branje rezultatov: prek USB (zajem.py preberi). Program NE vsebuje
+//  kode za WiFi ali Bluetooth; radio se nikoli ne vklopi.
+//
+//  STANJA (v NVS):
+//    PRIPRAVLJEN  nov program je naložen; seja se začne ob NASLEDNJEM
+//                 vklopu napajanja (RIGOL) ali s tipko EN
+//    TECE         seja teče. Če se ESP32 v tem stanju znova zažene (padec
+//                 napetosti, sesutje), se seja NE nadaljuje in zapisi se
+//                 NE brišejo: stanje postane PREKINJEN
+//    KONCAN / PREKINJEN / NAPAKA   ob vklopu samo izpisuje zapise (USB)
+//  Zapisi se pobrišejo samo (a) ob nalaganju programa z drugo oznako
+//  prevoda ali (b) z ukazom "n", poslanim DVAKRAT, v Serial Monitorju.
+// ====================================================================
+#include "esp_sleep.h"
+#include "esp_system.h"
+#include "esp_rom_crc.h"
+#include <Preferences.h>
+#include <LittleFS.h>
+#include <algorithm>
+
+// ======================= NASTAVITVE POSKUSA =========================
+// NACRT 0 = PREIZKUS VERIGE (okoli 25 min), 1 = KAMPANJA, 2 = SAMOPREIZKUS
+// (znane obremenitve za preverjanje merilne verige, okoli 4 min).
+#ifndef NACRT
+#define NACRT      0
+#endif
+// VRSTNI_RED 0 = neodvisna naključna permutacija algoritmov v vsakem bloku
+//                (kampanja: 25 blokov),
+//            1 = uravnotežen red: vsaka od 6 permutacij enako pogosto
+//                (kampanja: 30 blokov; število blokov mora biti večkratnik 6).
+// Izbira se določi PRED sejo in se zapiše v glavo izpisa.
+#ifndef VRSTNI_RED
+#define VRSTNI_RED 0
+#endif
+#define SPANJE_S   10     // počitek (light sleep) pred vsako optimizacijo (s)
+#define PO_OKNU_S  1      // light sleep po optimizaciji, pred pisanjem v flash (s)
+#define OGREVANJE  1      // ogrevalnih zagonov vsakega algoritma na poskus
+#define ZACETNO_SPANJE_S 10   // spanje takoj po vklopu, pred vsem ostalim (s)
+#define SEME       20270101u  // osnovno seme (zapiše se v izpis)
+
+#include "ea_jedro.h"     // algoritmi, generator, testni funkciji, proračun, cilji
+
+// Oznaka prevoda. prevedi.py ustvari ea_prevod.h z revizijo izvorne kode
+// (git) in zgostitvijo izvornih datotek; brez nje (ročni prevod v Arduino
+// IDE) je oznaka čas prevoda in sledljivosti do revizije NI.
+#if __has_include("ea_prevod.h")
+#include "ea_prevod.h"
+#else
+#define EA_PREVOD_ID "rocno " __DATE__ " " __TIME__
+#endif
+const char *OZNAKA_PREVODA = EA_PREVOD_ID;
+
+// Poskusi, ki se izvedejo zaporedoma: {funkcija, D, način, proračun}
+//   funkcija: 0 = Rastrigin, 1 = Rosenbrock
+//   način:    NACIN_FE  -> proračun je FE_max (število evalvacij)
+//             NACIN_CAS -> proračun je T v MIKROSEKUNDAH
+// Način in proračun sta lastnost vrstice: ista naložena koda izvede
+// zagone v obeh načinih, brez ponovnega prevajanja med njimi.
+struct Nastavitev { uint8_t funkcija; uint8_t D; uint8_t nacin; uint64_t proracun; };
+
+// Proračun v načinu FE: 10000 x D (dogovor CEC), določeno 2026-11-16.
+#define FE_D10     100000ULL
+#define FE_D20     200000ULL
+
+#if NACRT == 0
+// PREIZKUS VERIGE: vse štiri celice v načinu FE s proračunom kampanje (iz
+// trajanja teh zagonov se določi T za kampanjo) in ena kratka vrstica v
+// načinu CAS, da se preizkusi tudi ta pot. Rezultati niso za članek.
+#define ZAGONOV    (VRSTNI_RED == 0 ? 2 : 6)   // blokov = ponovitev VSAKEGA algoritma
+const Nastavitev POSKUSI[] = {
+  {0, 10, NACIN_FE, FE_D10}, {0, 20, NACIN_FE, FE_D20},
+  {1, 10, NACIN_FE, FE_D10}, {1, 20, NACIN_FE, FE_D20},
+  {0, 10, NACIN_CAS, 5000000ULL}};
+#elif NACRT == 1
+// KAMPANJA: Rastrigin in Rosenbrock, D = 10 in 20, oba načina proračuna.
+// T (v MIKROSEKUNDAH) za vsako celico vpišite po preizkusu verige: mediana
+// trajanja zagonov FE te celice (porocilo.txt, vrstica "trajanje merilnih
+// oken"), zaokrožena na celo sekundo. Primer: 12 s -> 12000000ULL.
+#define T_RASTRIGIN_D10_US   0ULL
+#define T_RASTRIGIN_D20_US   0ULL
+#define T_ROSENBROCK_D10_US  0ULL
+#define T_ROSENBROCK_D20_US  0ULL
+#if T_RASTRIGIN_D10_US == 0 || T_RASTRIGIN_D20_US == 0 || T_ROSENBROCK_D10_US == 0 || T_ROSENBROCK_D20_US == 0
+#error "Kampanja: vpisite T (v mikrosekundah) za vse stiri celice v ea_energija.ino (T_..._US), glej LAB_GUIDE.md."
+#endif
+#define ZAGONOV    (VRSTNI_RED == 0 ? 25 : 30)   // blokov = ponovitev VSAKEGA algoritma
+const Nastavitev POSKUSI[] = {
+  {0, 10, NACIN_FE, FE_D10}, {0, 10, NACIN_CAS, T_RASTRIGIN_D10_US},
+  {0, 20, NACIN_FE, FE_D20}, {0, 20, NACIN_CAS, T_RASTRIGIN_D20_US},
+  {1, 10, NACIN_FE, FE_D10}, {1, 10, NACIN_CAS, T_ROSENBROCK_D10_US},
+  {1, 20, NACIN_FE, FE_D20}, {1, 20, NACIN_CAS, T_ROSENBROCK_D20_US}};
+#else
+// SAMOPREIZKUS ne uporablja tabele poskusov (ena vrstica, da se prevede).
+#define ZAGONOV    1
+const Nastavitev POSKUSI[] = {{0, 10, NACIN_FE, FE_D10}};
+#endif
+
+// Kateri algoritmi se primerjajo: 0 = klasični DE, 1 = jDE, 2 = L-SHADE
+const uint8_t ALGORITMI[] = {0, 1, 2};
+
+// ---- strojna oprema ----
+#define MARKER     4      // GPIO, ki je 1 med optimizacijo (za osciloskop)
+// Neuporabljeni splošni pini dobijo določeno stanje (vhod s pull-down),
+// enako za vse zagone. Strapping pini, pini flasha, UART in vhodni pini
+// 34-39 ostanejo nedotaknjeni. 0 = pinov ne nastavljaj.
+#define DOLOCI_PINE 1
+const uint8_t NEUPORABLJENI_PINI[] = {13, 14, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33};
+#define CPU_MHZ    240    // zahtevana frekvenca; dejanska se prebere in zapiše
+
+// 1 = med poskusom izpisuj napredek na UART (samo za preizkus prek USB!)
+// 0 = med poskusom popolnoma tiho (za pravo meritev z RIGOL-om)
+#define IZPIS_MED_POSKUSOM 0
+// ====================================================================
+
+#define N_ALG    (sizeof(ALGORITMI) / sizeof(ALGORITMI[0]))
+#define N_POSK   (sizeof(POSKUSI) / sizeof(POSKUSI[0]))
+#define ZAPISOV_NACRT (N_POSK * N_ALG * (ZAGONOV + OGREVANJE))   // zapisov v popolni seji
+const char *IME_ALG[] = {"DE", "jDE", "LSHADE"};
+const char *IME_FUN[] = {"rastrigin", "rosenbrock"};
+
+// ======================= SHRANJEVANJE V FLASH =======================
+// Stanje hranimo v NVS (Preferences), zapise pa zaporedno v datoteki
+// /rez.bin na LittleFS (samopreizkus: /samo.bin). Oboje preživi izklop.
+#define DATOTEKA       "/rez.bin"
+#define DATOTEKA_SAMO  "/samo.bin"
+#define STANJE_TECE        1   // seja teče
+#define STANJE_KONCAN      2   // vsi zagoni so končani
+#define STANJE_NAPAKA      3   // seja se je ustavila z napako (napaka_v)
+#define STANJE_PRIPRAVLJEN 4   // nov program naložen, seja se začne ob naslednjem vklopu
+#define STANJE_PREKINJEN   5   // ESP32 se je med sejo znova zagnal; zapisi so ohranjeni
+// vrste napak (napaka_v)
+#define NAPAKA_POMNILNIK   1
+#define NAPAKA_PREMIK      2
+#define NAPAKA_RED         3
+#define NAPAKA_FLASH_POLN  4
+#define NAPAKA_PISANJE     5
+#define NAPAKA_LITTLEFS    6
+
+// En zapis v /rez.bin. Fiksna velikost; različica in kontrolna vsota
+// omogočata, da se delno zapisan ali pokvarjen zapis prepozna. LittleFS
+// pri izpadu napajanja ohrani prej zaprte podatke.
+#define ZAPIS_MAGIC      0xEA51
+#define ZAPIS_RAZLICICA  3
+struct Zapis {
+  uint16_t magic;            // ZAPIS_MAGIC
+  uint8_t  razlicica;        // ZAPIS_RAZLICICA
+  uint8_t  razlog_reseta;    // esp_reset_reason() zagona ESP32, ki je izvedel ta zagon
+  uint16_t cpu_mhz;          // getCpuFrequencyMhz(), prebrano tik pred oknom
+  uint8_t  napake_spanja;    // št. spanj pred tem zagonom, ki niso uspela ali jih ni zbudil časovnik
+  uint8_t  rezerva;
+  uint32_t prevod_crc;       // CRC32 oznake prevoda (EA_PREVOD_ID)
+  uint32_t pocitek_us;       // izmerjeno trajanje počitka pred oknom (časovnik ESP32)
+  uint32_t prosta_kopica;    // prosti pomnilnik (kopica) tik pred oknom, v bajtih
+  uint32_t sklad_min;        // najmanjši prosti sklad opravila po zagonu (uxTaskGetStackHighWaterMark)
+  Rezultat r;                // rezultat zagona (ea_jedro.h)
+  uint32_t crc;              // CRC32 vseh prejšnjih bajtov zapisa
+};
+
+// Zapis samopreizkusa (/samo.bin).
+#define SAMO_MAGIC       0xEA52
+struct SamoZapis {
+  uint16_t magic;
+  uint8_t  razlicica;
+  uint8_t  vrsta;            // 1 = stalna obremenitev, 2 = delovni cikel, 3 = meritev časa operacije
+  uint8_t  id;               // vrsta 1: obremenitev 1..4; vrsta 2: delež dela v %; vrsta 3: operacija
+  uint8_t  rezerva[3];
+  uint32_t parameter;        // vrsta 2: perioda v ms; vrsta 3: število ponovitev
+  uint64_t t_zacetek_us;     // vrednost časovnika ob začetku
+  uint64_t t_konec_us;       // in ob koncu
+  uint64_t stevec;           // opravljene ponovitve (vrsta 1, 3) ali cikli (vrsta 2)
+  uint64_t aktivno_us;       // vrsta 2: skupni izmerjeni čas dela
+  uint64_t spanje_us;        // vrsta 2: skupni izmerjeni čas spanja
+  uint32_t crc;
+};
+
+Zapis zap;                 // trenutni zagon (vsi so v flashu, ne v RAM-u)
+Preferences flash;
+uint8_t razlog_reseta;     // esp_reset_reason() tega zagona ESP32
+uint32_t prevod_crc;       // CRC32 oznake prevoda
+uint8_t napake_spanja;     // števec od zadnjega zapisa
+
+uint32_t crc32(const void *p, size_t n) { return esp_rom_crc32_le(0, (const uint8_t *)p, n); }
+
+// Seja se ustavi z napako: stanje in vrsta napake v NVS, nato deep sleep.
+// Že zapisani zapisi ostanejo in se ob vklopu prek USB izpišejo.
+void ustavi_z_napako(uint8_t vrsta, int poskus) {
+  flash.putUChar("stanje", STANJE_NAPAKA);
+  flash.putUChar("napaka_v", vrsta);
+  flash.putUChar("napaka_e", (uint8_t)poskus);
+  flash.end();
+  esp_deep_sleep_start();
+}
+
+// ======================= VRSTNI RED ZAGONOV =========================
+// Pravili sta v ea_jedro.h (red_nakljucni, red_uravnotezen). Položaj
+// algoritma v bloku se zapiše v vsak zapis (poz).
+uint8_t blok_perm[ZAGONOV];            // RED_URAVNOTEZEN: številka permutacije za blok
+
+bool pripravi_vrstni_red(int poskus) {
+#if VRSTNI_RED == RED_URAVNOTEZEN
+  return red_uravnotezen(SEME, poskus, ZAGONOV, N_ALG, blok_perm);
+#else
+  (void)poskus;
+  return true;
+#endif
+}
+
+void red_bloka(int poskus, int blok, uint8_t *perm) {
+#if VRSTNI_RED == RED_URAVNOTEZEN
+  (void)poskus;
+  permutacija_st(blok_perm[blok], N_ALG, perm);
+#else
+  red_nakljucni(SEME, poskus, blok, N_ALG, perm);
+#endif
+}
+
+// ======================= POSKUS (napajanje z RIGOL-a) ===============
+// Light sleep z bujenjem na časovnik. Preveri, da je spanje uspelo in da
+// ga je zbudil časovnik; sicer poveča napake_spanja (zapiše se v zapis).
+// Vrne izmerjeno trajanje spanja v mikrosekundah (časovnik ESP32).
+uint32_t spi(uint64_t us) {
+  int64_t t0 = esp_timer_get_time();
+  esp_sleep_enable_timer_wakeup(us);
+  esp_err_t e = esp_light_sleep_start();
+  if (e != ESP_OK || esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER) {
+    if (napake_spanja < 255) napake_spanja++;
+  }
+  return (uint32_t)(esp_timer_get_time() - t0);
+}
+
+// Doda zapis na konec datoteke in preveri, da je res zapisan v celoti.
+bool dodaj_v_datoteko(const char *pot, const void *p, size_t n) {
+  File f = LittleFS.open(pot, FILE_APPEND);
+  if (!f) return false;
+  size_t pred = f.size();
+  size_t zapisano = f.write((const uint8_t *)p, n);
+  f.close();
+  if (zapisano != n) return false;
+  f = LittleFS.open(pot, FILE_READ);
+  if (!f) return false;
+  bool ok = f.size() == pred + n;
+  f.close();
+  return ok;
+}
+
+// En korak protokola: počitek, merilno okno, počitek, zapis v flash.
+void korak(uint8_t alg, int poskus, int zagon, int poz, bool ogrev) {
+  memset(&zap, 0, sizeof(zap));
+  zap.pocitek_us = spi((uint64_t)SPANJE_S * 1000000ULL);   // počitek + bazna poraba
+  zap.magic = ZAPIS_MAGIC;
+  zap.razlicica = ZAPIS_RAZLICICA;
+  zap.razlog_reseta = razlog_reseta;
+  zap.prevod_crc = prevod_crc;
+  zap.cpu_mhz = (uint16_t)getCpuFrequencyMhz();
+  zap.prosta_kopica = ESP.getFreeHeap();
+
+  digitalWrite(MARKER, HIGH);                 // ---- merilno okno ----
+  pozeni(alg, poskus, zagon, ogrev, POSKUSI[poskus].nacin, POSKUSI[poskus].proracun, &zap.r);
+  digitalWrite(MARKER, LOW);                  // ---------------------
+  zap.r.poz = poz;
+  zap.sklad_min = (uint32_t)uxTaskGetStackHighWaterMark(NULL);
+
+  spi((uint64_t)PO_OKNU_S * 1000000ULL);      // loči optimizacijo od pisanja
+  zap.napake_spanja = napake_spanja;
+  napake_spanja = 0;
+  zap.crc = crc32(&zap, offsetof(Zapis, crc));
+  if (!dodaj_v_datoteko(DATOTEKA, &zap, sizeof(Zapis))) ustavi_z_napako(NAPAKA_PISANJE, poskus);
+#if IZPIS_MED_POSKUSOM
+  Serial.printf("#%s %s D=%d %s blok %d poz %d best=%.3e fe=%lu\n",
+                ogrev ? "OGREV" : "ZAGON", IME_FUN[FUN], D, IME_ALG[alg], zagon, poz,
+                (double)zap.r.best, (unsigned long)zap.r.fe);
+  Serial.flush();
+#endif
+}
+
+// Skupni začetek seje (poskus ali samopreizkus).
+void zacni_sejo(size_t potrebno_bajtov) {
+  spi((uint64_t)ZACETNO_SPANJE_S * 1000000ULL);   // napajanje se ustali
+  flash.putUChar("stanje", STANJE_TECE);
+  flash.putUChar("resetov", 1);
+  flash.putUChar("razlog_z", razlog_reseta);      // razlog zagona, s katerim se je seja začela
+  if (!LittleFS.begin(true)) ustavi_z_napako(NAPAKA_LITTLEFS, 0);
+  // Prostor za vse zapise seje z rezervo; če ga ni, se seja ne začne
+  // (zapisi se nikoli ne prepisujejo).
+  if (LittleFS.totalBytes() - LittleFS.usedBytes() < potrebno_bajtov + 16384)
+    ustavi_z_napako(NAPAKA_FLASH_POLN, 0);
+#if IZPIS_MED_POSKUSOM
+  Serial.begin(115200);
+  delay(500);
+#else
+  // TX pin v visoko impedanco, da ESP32 ne napaja USB-UART čipa
+  // na ploščici prek podatkovne linije.
+  pinMode(1, INPUT);
+#endif
+}
+
+void izvedi_poskus() {
+  zacni_sejo(ZAPISOV_NACRT * sizeof(Zapis));
+  for (int e = 0; e < (int)N_POSK; e++) {
+    if (!nastavi_problem(POSKUSI[e].funkcija, POSKUSI[e].D)) ustavi_z_napako(NAPAKA_PREMIK, e);
+    if (!alociraj()) ustavi_z_napako(NAPAKA_POMNILNIK, e);
+    if (!pripravi_vrstni_red(e)) ustavi_z_napako(NAPAKA_RED, e);
+#if IZPIS_MED_POSKUSOM
+    Serial.printf("#Poskus %d: %s D=%d, prosti RAM: %u B\n", e, IME_FUN[FUN], D,
+                  ESP.getFreeHeap());
+#endif
+    // 1) ogrevanje: vsak algoritem OGREVANJE-krat (označeno, ne analizira se)
+    for (int w = 0; w < OGREVANJE; w++)
+      for (int a = 0; a < (int)N_ALG; a++)
+        korak(ALGORITMI[a], e, w, a, true);
+    // 2) meritve: v vsakem bloku vsak algoritem enkrat, red po VRSTNI_RED
+    for (int z = 0; z < ZAGONOV; z++) {
+      uint8_t perm[N_ALG];
+      red_bloka(e, z, perm);
+      for (int poz = 0; poz < (int)N_ALG; poz++)
+        korak(ALGORITMI[perm[poz]], e, z, poz, false);
+    }
+    sprosti();
+  }
+  flash.putUChar("stanje", STANJE_KONCAN);
+  flash.end();
+  esp_deep_sleep_start();              // konec: tok pade skoraj na nič
+}
+
+// ======================= SAMOPREIZKUS (NACRT 2) =====================
+// Znane obremenitve za preverjanje merilne verige (RIGOL + analiza):
+//   4 stalne obremenitve po SAMO_OKNO_S: 1 prazna zanka, 2 celoštevilsko
+//     računanje, 3 računanje v float (Rastrigin D = 10), 4 sprehod po
+//     pomnilniku;
+//   3 delovni cikli po 2 x SAMO_OKNO_S: delo (obremenitev 3) in light
+//     sleep v razmerju 25, 50 in 75 %, perioda SAMO_PERIODA_MS;
+//   meritve časa operacij (brez okna): branje ure, rnd(), ena evalvacija
+//     vsake funkcije pri D = 10 in 20. Iz njih analiza izračuna, kolikšen
+//     del evalvacije stane branje ure (izbira PERIODA_URE_FE).
+// Vsako okno: SPANJE_S počitka, GPIO4 = 1 med oknom, 1 s spanja, zapis.
+#define SAMO_OKNO_S      10
+#define SAMO_PERIODA_MS  1000
+#define SAMO_OKEN        7
+volatile uint32_t samo_ponor;        // volatile: prevajalnik zank ne sme odstraniti
+float samo_x[20];
+uint8_t *samo_pomnilnik;
+#define SAMO_POMNILNIK_B 65536
+
+// Ena enota obremenitve (kratka, da se ura bere dovolj pogosto).
+void samo_enota(uint8_t obremenitev) {
+  if (obremenitev == 1) {
+    for (int i = 0; i < 256; i++) samo_ponor = samo_ponor + 1;
+  } else if (obremenitev == 2) {
+    uint32_t a = samo_ponor | 1u;
+    for (int i = 0; i < 256; i++) { a = a * 1664525u + 1013904223u; a ^= a >> 13; }
+    samo_ponor = a;
+  } else if (obremenitev == 3) {
+    samo_ponor = samo_ponor + (uint32_t)kriterij(samo_x);
+  } else {
+    uint32_t a = samo_ponor;
+    for (int i = 0; i < SAMO_POMNILNIK_B; i += 64) { a += samo_pomnilnik[i]; samo_pomnilnik[i] = (uint8_t)a; }
+    samo_ponor = a;
+  }
+}
+
+void samo_zapisi(SamoZapis *z) {
+  z->magic = SAMO_MAGIC;
+  z->razlicica = ZAPIS_RAZLICICA;
+  z->crc = crc32(z, offsetof(SamoZapis, crc));
+  if (!dodaj_v_datoteko(DATOTEKA_SAMO, z, sizeof(SamoZapis))) ustavi_z_napako(NAPAKA_PISANJE, 0);
+}
+
+void samopreizkus() {
+  zacni_sejo(32 * sizeof(SamoZapis));
+  if (!nastavi_problem(0, 10) || !alociraj()) ustavi_z_napako(NAPAKA_POMNILNIK, 0);
+  samo_pomnilnik = (uint8_t *)malloc(SAMO_POMNILNIK_B);
+  if (!samo_pomnilnik) ustavi_z_napako(NAPAKA_POMNILNIK, 0);
+  memset(samo_pomnilnik, 1, SAMO_POMNILNIK_B);
+  for (int j = 0; j < 20; j++) samo_x[j] = 0.5f + 0.01f * j;
+  static SamoZapis z;
+
+  // --- stalne obremenitve ---
+  for (uint8_t ob = 1; ob <= 4; ob++) {
+    memset(&z, 0, sizeof(z));
+    z.vrsta = 1; z.id = ob;
+    spi((uint64_t)SPANJE_S * 1000000ULL);
+    digitalWrite(MARKER, HIGH);
+    int64_t t0 = esp_timer_get_time(), konec = t0 + (int64_t)SAMO_OKNO_S * 1000000LL;
+    uint64_t n = 0;
+    while (esp_timer_get_time() < konec) { samo_enota(ob); n++; }
+    int64_t t1 = esp_timer_get_time();
+    digitalWrite(MARKER, LOW);
+    z.t_zacetek_us = (uint64_t)t0; z.t_konec_us = (uint64_t)t1; z.stevec = n;
+    spi((uint64_t)PO_OKNU_S * 1000000ULL);
+    samo_zapisi(&z);
+  }
+  // --- delovni cikli: delo (float) / light sleep ---
+  const uint8_t delezi[] = {25, 50, 75};
+  for (uint8_t d : delezi) {
+    memset(&z, 0, sizeof(z));
+    z.vrsta = 2; z.id = d; z.parameter = SAMO_PERIODA_MS;
+    spi((uint64_t)SPANJE_S * 1000000ULL);
+    digitalWrite(MARKER, HIGH);
+    int64_t t0 = esp_timer_get_time(), konec = t0 + 2LL * SAMO_OKNO_S * 1000000LL;
+    int64_t delo_us = (int64_t)SAMO_PERIODA_MS * 10 * d, perioda_us = (int64_t)SAMO_PERIODA_MS * 1000;
+    while (esp_timer_get_time() < konec) {
+      int64_t a = esp_timer_get_time();
+      while (esp_timer_get_time() - a < delo_us) samo_enota(3);
+      int64_t b = esp_timer_get_time();
+      esp_sleep_enable_timer_wakeup((uint64_t)(perioda_us - (b - a)));
+      esp_light_sleep_start();
+      int64_t c = esp_timer_get_time();
+      z.aktivno_us += (uint64_t)(b - a);
+      z.spanje_us += (uint64_t)(c - b);
+      z.stevec++;
+    }
+    int64_t t1 = esp_timer_get_time();
+    digitalWrite(MARKER, LOW);
+    z.t_zacetek_us = (uint64_t)t0; z.t_konec_us = (uint64_t)t1;
+    spi((uint64_t)PO_OKNU_S * 1000000ULL);
+    samo_zapisi(&z);
+  }
+  // --- čas operacij (id: 1 branje ure, 2 rnd(), 10+f*2+k: evalvacija funkcije f pri D = 10 (k=0) ali 20 (k=1)) ---
+  spi((uint64_t)SPANJE_S * 1000000ULL);
+  rng_nastavi(1u);
+  for (uint8_t op = 1; op <= 2; op++) {
+    memset(&z, 0, sizeof(z));
+    z.vrsta = 3; z.id = op; z.parameter = 200000;
+    int64_t t0 = esp_timer_get_time();
+    if (op == 1) for (uint32_t i = 0; i < z.parameter; i++) samo_ponor = samo_ponor + (uint32_t)esp_timer_get_time();
+    else         for (uint32_t i = 0; i < z.parameter; i++) samo_ponor = samo_ponor + (uint32_t)(rnd() * 16.0f);
+    z.t_konec_us = (uint64_t)esp_timer_get_time(); z.t_zacetek_us = (uint64_t)t0; z.stevec = z.parameter;
+    samo_zapisi(&z);
+  }
+  sprosti();
+  for (int f = 0; f < 2; f++) {
+    for (int k = 0; k < 2; k++) {
+      if (!nastavi_problem(f, k ? 20 : 10) || !alociraj()) ustavi_z_napako(NAPAKA_POMNILNIK, 0);
+      memset(&z, 0, sizeof(z));
+      z.vrsta = 3; z.id = (uint8_t)(10 + f * 2 + k); z.parameter = 20000;
+      int64_t t0 = esp_timer_get_time();
+      for (uint32_t i = 0; i < z.parameter; i++) samo_ponor = samo_ponor + (uint32_t)kriterij(samo_x);
+      z.t_konec_us = (uint64_t)esp_timer_get_time(); z.t_zacetek_us = (uint64_t)t0; z.stevec = z.parameter;
+      samo_zapisi(&z);
+      sprosti();
+    }
+  }
+  flash.putUChar("stanje", STANJE_KONCAN);
+  flash.end();
+  esp_deep_sleep_start();
+}
+
+// ======================= BRANJE IN IZPIS REZULTATOV =================
+const char *ime_stanja(uint8_t s) {
+  return s == STANJE_KONCAN ? "koncan" : s == STANJE_PREKINJEN ? "prekinjen" :
+         s == STANJE_NAPAKA ? "napaka" : s == STANJE_TECE ? "tece" : "pripravljen";
+}
+
+// Glava izpisa: vse, kar analiza potrebuje o načrtu in poteku seje.
+// zapisov_nacrt je število zapisov popolne seje. prevod je zadnji, ker
+// lahko vsebuje presledke.
+void izpisi_glavo(Print &o, size_t velikost_datoteke) {
+  o.printf("\n#POSKUS nacrt=%d red=%s zagonov=%d spanje=%ds po_oknu=%ds ogrevanje=%d tock=%d "
+           "ciljev=%d perioda_ure_fe=%d seme=%lu premik_seme=%lu DE_NP=%d JDE_NP=%d "
+           "stanje=%s napaka_v=%u resetov=%u razlog_zacetka=%u razlog_prekinitve=%u "
+           "zapisov_nacrt=%u velikost_zapisa=%u datoteka_B=%u prevod_crc=%lu cilji=",
+           NACRT, VRSTNI_RED == RED_URAVNOTEZEN ? "uravnotezen" : "nakljucni", ZAGONOV, SPANJE_S,
+           PO_OKNU_S, OGREVANJE, ST_TOCK, ST_CILJEV, PERIODA_URE_FE,
+           (unsigned long)SEME, (unsigned long)PREMIK_SEME, DE_NP, JDE_NP,
+           ime_stanja(flash.getUChar("stanje", 0)), flash.getUChar("napaka_v", 0),
+           flash.getUChar("resetov", 0), flash.getUChar("razlog_z", 0),
+           flash.getUChar("razlog_p", 0), (unsigned)ZAPISOV_NACRT, (unsigned)sizeof(Zapis),
+           (unsigned)velikost_datoteke, (unsigned long)prevod_crc);
+  for (int k = 0; k < ST_CILJEV; k++) o.printf("%s%.1e", k ? ";" : "", (double)CILJI[k]);
+  o.print(" poskusi=");
+  for (int e = 0; e < (int)N_POSK; e++)
+    o.printf("%s%s/%d/%s/%llu", e ? ";" : "", IME_FUN[POSKUSI[e].funkcija], POSKUSI[e].D,
+             POSKUSI[e].nacin == NACIN_FE ? "FE" : "CAS", (unsigned long long)POSKUSI[e].proracun);
+  o.printf(" prevod=%s\n", OZNAKA_PREVODA);
+}
+
+// Prebere zapis i. Vrne 1, če sta oznaka, različica in kontrolna vsota
+// pravilni, 0, če je zapis pokvarjen, in -1, če ga ni mogoče prebrati.
+int beri_zapis(File &f, int i, Zapis *z) {
+  if (!f.seek((uint32_t)i * sizeof(Zapis)) ||
+      f.read((uint8_t *)z, sizeof(Zapis)) != sizeof(Zapis)) return -1;
+  return z->magic == ZAPIS_MAGIC && z->razlicica == ZAPIS_RAZLICICA &&
+         z->crc == crc32(z, offsetof(Zapis, crc)) ? 1 : 0;
+}
+
+// Izpis: vrstica REZ za vsak zagon (crc_ok = 0: zapis je pokvarjen in
+// njegove vrednosti niso zanesljive), nato vrstice CILJ (prvi doseg
+// vsakega cilja; fe = 0: ni dosežen) in TOCKA (kontrolne točke). Časi so
+// v mikrosekundah; best ima 9 značilnih mest, kar float prenese brez izgube.
+void izpisi_vse() {
+  File f = LittleFS.open(DATOTEKA, FILE_READ);
+  size_t velikost = f ? f.size() : 0;
+  int n = (int)(velikost / sizeof(Zapis));
+  izpisi_glavo(Serial, velikost);
+  static Zapis z;
+  Serial.println("#REZ,i,poskus,funkcija,D,alg,zagon,poz,ogrev,nacin,proracun,fe,gen,best,"
+                 "cas_us,t_zacetek_us,t_konec_us,np_konec,LS_NP_INIT,seme,crc_ok,razlog_reseta,"
+                 "cpu_mhz,napake_spanja,pocitek_us,prosta_kopica,sklad_min,prevod_crc");
+  for (int i = 0; i < n; i++) {
+    int ok = beri_zapis(f, i, &z);
+    if (ok < 0) break;
+    const Rezultat &r = z.r;
+    const Nastavitev &p = POSKUSI[r.poskus < N_POSK ? r.poskus : 0];
+    Serial.printf("REZ,%d,%u,%s,%u,%s,%u,%u,%u,%s,%llu,%lu,%lu,%.8e,%llu,%llu,%llu,%u,%d,%lu,"
+                  "%d,%u,%u,%u,%lu,%lu,%lu,%lu\n",
+                  i, r.poskus, IME_FUN[p.funkcija], p.D, IME_ALG[r.alg < 3 ? r.alg : 0], r.zagon,
+                  r.poz, r.ogrev, r.nacin == NACIN_FE ? "FE" : "CAS",
+                  (unsigned long long)(r.nacin == NACIN_FE ? r.proracun_fe : r.proracun_us),
+                  (unsigned long)r.fe, (unsigned long)r.gen, (double)r.best,
+                  (unsigned long long)(r.t_konec_us - r.t_zacetek_us),
+                  (unsigned long long)r.t_zacetek_us, (unsigned long long)r.t_konec_us,
+                  r.np_konec, ls_np_init(p.D), (unsigned long)r.seme,
+                  ok, z.razlog_reseta, z.cpu_mhz, z.napake_spanja, (unsigned long)z.pocitek_us,
+                  (unsigned long)z.prosta_kopica, (unsigned long)z.sklad_min,
+                  (unsigned long)z.prevod_crc);
+  }
+  Serial.println("#CILJ,i,k,prag,fe,us");
+  for (int i = 0; i < n; i++) {
+    if (beri_zapis(f, i, &z) < 0) break;
+    for (int k = 0; k < ST_CILJEV; k++)
+      Serial.printf("CILJ,%d,%d,%.1e,%lu,%llu\n", i, k, (double)CILJI[k],
+                    (unsigned long)z.r.cilj_fe[k], (unsigned long long)z.r.cilj_us[k]);
+  }
+  Serial.println("#TOCKA,i,k,fe,us,best");
+  for (int i = 0; i < n; i++) {
+    if (beri_zapis(f, i, &z) < 0) break;
+    for (int k = 0; k < z.r.st_tock && k < ST_TOCK; k++)
+      Serial.printf("TOCKA,%d,%d,%lu,%llu,%.8e\n", i, k, (unsigned long)z.r.tocka_fe[k],
+                    (unsigned long long)z.r.tocka_us[k], (double)z.r.tocka_best[k]);
+  }
+  if (f) f.close();
+  // zapisi samopreizkusa (če obstajajo)
+  File s = LittleFS.open(DATOTEKA_SAMO, FILE_READ);
+  if (s) {
+    static SamoZapis sz;
+    int m = (int)(s.size() / sizeof(SamoZapis));
+    Serial.printf("#SAMOPREIZKUS okno=%ds perioda=%dms spanje=%ds zapisov=%d\n", SAMO_OKNO_S,
+                  SAMO_PERIODA_MS, SPANJE_S, m);
+    Serial.println("#SAMO,i,vrsta,id,parameter,t_zacetek_us,t_konec_us,stevec,aktivno_us,"
+                   "spanje_us,crc_ok");
+    for (int i = 0; i < m; i++) {
+      if (s.read((uint8_t *)&sz, sizeof(sz)) != sizeof(sz)) break;
+      int ok = sz.magic == SAMO_MAGIC && sz.crc == crc32(&sz, offsetof(SamoZapis, crc));
+      Serial.printf("SAMO,%d,%u,%u,%lu,%llu,%llu,%llu,%llu,%llu,%d\n", i, sz.vrsta, sz.id,
+                    (unsigned long)sz.parameter, (unsigned long long)sz.t_zacetek_us,
+                    (unsigned long long)sz.t_konec_us, (unsigned long long)sz.stevec,
+                    (unsigned long long)sz.aktivno_us, (unsigned long long)sz.spanje_us, ok);
+    }
+    s.close();
+  }
+  Serial.println("#KONEC_IZPISA   ('n' dvakrat = pobriši zapise in pripravi novo sejo)");
+}
+
+// ======================= IZPIS (napajanje prek USB) =================
+// Izpis ponavlja vsakih 10 s. Zapisi se pobrišejo samo z ukazom "n",
+// poslanim dvakrat v 10 s (potrditev); tipka BOOT jih NE briše.
+void izpisuj_rezultate() {
+  Serial.begin(115200);
+  LittleFS.begin(true);
+  bool caka_potrditev = false;
+  while (true) {
+    if (flash.getUChar("stanje", 0) == STANJE_NAPAKA)
+      Serial.printf("\n#NAPAKA vrsta=%u poskus=%u (1 pomnilnik, 2 ni premika, 3 vrstni red, "
+                    "4 flash poln, 5 pisanje v flash, 6 LittleFS)\n",
+                    flash.getUChar("napaka_v", 0), flash.getUChar("napaka_e", 0));
+    izpisi_vse();
+    bool potrjeno = false;
+    for (int k = 0; k < 1000 && !potrjeno; k++) {   // 10 s
+      int znak = Serial.available() ? Serial.read() : -1;
+      if (znak == 'n') {
+        if (caka_potrditev) potrjeno = true;
+        else {
+          caka_potrditev = true;
+          Serial.println("#Za BRISANJE zapisov in pripravo nove seje pošljite 'n' še enkrat.");
+        }
+      }
+      delay(10);
+    }
+    if (potrjeno) {
+      Serial.println("#Zapisi pobrisani. Seja se začne ob naslednjem vklopu (RIGOL) ali s tipko EN.");
+      Serial.flush();
+      LittleFS.remove(DATOTEKA);
+      LittleFS.remove(DATOTEKA_SAMO);
+      flash.putUChar("stanje", STANJE_PRIPRAVLJEN);
+      flash.putUChar("resetov", 0);
+      flash.putUChar("napaka_v", 0);
+      flash.putUChar("razlog_p", 0);
+      flash.end();
+      esp_deep_sleep_start();
+    }
+    caka_potrditev = false;
+  }
+}
+
+// ======================= GLAVNI PROGRAM =============================
+void setup() {
+  pinMode(MARKER, OUTPUT);
+  digitalWrite(MARKER, LOW);
+#if DOLOCI_PINE
+  for (uint8_t pin : NEUPORABLJENI_PINI) pinMode(pin, INPUT_PULLDOWN);
+#endif
+  setCpuFrequencyMhz(CPU_MHZ);         // fiksna frekvenca; dejanska se zapiše v vsak zapis
+  // Opomba: v konfiguraciji jedra 3.3.12 nadzornik opravil (task WDT) ne
+  // nadzira jedra 1, na katerem teče ta program; klic je zato brez učinka.
+  disableCore1WDT();
+  razlog_reseta = (uint8_t)esp_reset_reason();
+  prevod_crc = crc32(OZNAKA_PREVODA, strlen(OZNAKA_PREVODA));
+
+  flash.begin("ea", false);
+  if (flash.getString("prevod", "") != String(OZNAKA_PREVODA)) {
+    // Program z drugo oznako prevoda: zapisi prejšnjega programa so v
+    // drugi obliki in se pobrišejo. Seje NE začnemo takoj (ESP32 je še na
+    // USB), ampak ob naslednjem vklopu z RIGOL-om.
+    flash.clear();
+    flash.putString("prevod", OZNAKA_PREVODA);
+    flash.putUChar("stanje", STANJE_PRIPRAVLJEN);
+    LittleFS.begin(true);              // formatiranje ob prvem zagonu, še na USB
+    LittleFS.remove(DATOTEKA);
+    LittleFS.remove(DATOTEKA_SAMO);
+    Serial.begin(115200);
+    delay(300);
+    Serial.printf("\n#PRIPRAVLJEN prevod=%s\n#Odklopite USB; seja se začne ob naslednjem "
+                  "vklopu napajanja (RIGOL) ali s tipko EN.\n", OZNAKA_PREVODA);
+    Serial.flush();
+    flash.end();
+    esp_deep_sleep_start();            // brez bujenja: čaka na izklop/vklop ali EN
+  }
+
+  uint8_t stanje = flash.getUChar("stanje", 0);
+  if (stanje == STANJE_TECE) {
+    // ESP32 se je znova zagnal MED sejo (padec napetosti, sesutje,
+    // nadzornik). Zapisov ne brišemo in seje ne nadaljujemo.
+    flash.putUChar("stanje", STANJE_PREKINJEN);
+    flash.putUChar("razlog_p", razlog_reseta);
+    flash.putUChar("resetov", flash.getUChar("resetov", 1) + 1);
+    stanje = STANJE_PREKINJEN;
+  }
+  if (stanje == STANJE_PRIPRAVLJEN) {
+#if NACRT == 2
+    samopreizkus();
+#else
+    izvedi_poskus();
+#endif
+  }
+  izpisuj_rezultate();                 // KONCAN, PREKINJEN ali NAPAKA
+}
+
+void loop() {}                         // ne uporabljamo
+

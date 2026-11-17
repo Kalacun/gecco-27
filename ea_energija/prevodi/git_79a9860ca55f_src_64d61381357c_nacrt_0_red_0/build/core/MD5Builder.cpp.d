@@ -1,0 +1,20 @@
+/Users/aleks/gecco2027-electricity/ea_energija/prevodi/git_79a9860ca55f_src_64d61381357c_nacrt_0_red_0/build/core/MD5Builder.cpp.o: \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/MD5Builder.cpp \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/HEXBuilder.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/WString.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/pgmspace.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/newlib/platform_include/ctype.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/Stream.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/Print.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/newlib/platform_include/stdio.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/WString.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/Printable.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/MD5Builder.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_system/include/esp_system.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_common/include/esp_err.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_common/include/esp_compiler.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_common/include/esp_attr.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_common/include/esp_bit_defs.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_common/include/esp_idf_version.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_rom/include/esp_rom_md5.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/HashBuilder.h

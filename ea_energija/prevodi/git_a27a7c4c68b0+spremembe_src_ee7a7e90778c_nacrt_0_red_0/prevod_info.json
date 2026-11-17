@@ -1,0 +1,32 @@
+{
+  "oznaka_prevoda": "git:a27a7c4c68b0+spremembe src:ee7a7e90778c nacrt:0 red:0",
+  "git_revizija": "a27a7c4c68b0a9c2600ff5e8186f7cb6fe97b531",
+  "git_spremembe": true,
+  "izvorne_datoteke": [
+    "ea_energija.ino",
+    "ea_jedro.h",
+    "ea_premiki.h"
+  ],
+  "sha256_izvornih": {
+    "ea_energija.ino": "b595a0187ab8362a9fe984f9877bcd1ea1d6dc602396a0a1defe76a72d00ec73",
+    "ea_jedro.h": "8f742026a9d72fbbe0ff999191d68bd0ebf773da096b25628c75bbcb17b85265",
+    "ea_premiki.h": "882cd95f8103366cf804f397e5e4e462c8a923dbdf7b421f37fa22d98f7b12be"
+  },
+  "sha256_skupna": "ee7a7e90778cb91f873a96a983f52cd0d15e2bd60d94d783602571e1587775fc",
+  "nacrt": 0,
+  "vrstni_red": 0,
+  "fqbn": "esp32:esp32:esp32:CPUFreq=240,FlashMode=qio,FlashFreq=80,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1",
+  "zastavice": "-Wdouble-promotion -Wfloat-conversion",
+  "opozorila": "--warnings all -Wdouble-promotion -Wfloat-conversion",
+  "arduino_cli": "arduino-cli  Version: 1.5.1 Commit: 01f3d4f2b Date: 2026-06-05T10:21:41Z",
+  "jedra": [
+    "ID          Installed Latest Name",
+    "arduino:avr 1.8.8     1.8.8  Arduino AVR Boards",
+    "esp32:esp32 3.3.12    3.3.12 esp32"
+  ],
+  "velikost_programa_B": 345344,
+  "sha256_binarne": "d6faaf269cfa5134ede867b32194f9d8965f5778994f2990d2ddde0c9d18408b",
+  "cas_prevoda": "2026-11-17 10:28:56 +0100",
+  "python": "3.15.0",
+  "platforma": "darwin"
+}

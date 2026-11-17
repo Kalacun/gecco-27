@@ -1,0 +1,21 @@
+{
+  "oznaka_prevoda": "git:ee44d41d6598 src:ee7a7e90778c nacrt:2 red:0",
+  "vrsta": "samopreizkus",
+  "nacrt": 2,
+  "vrstni_red": 0,
+  "git_revizija": "ee44d41d6598e3acea9c73b903d45979113d9af9",
+  "git_spremembe": false,
+  "izvorne_datoteke": [
+    "ea_energija.ino",
+    "ea_jedro.h",
+    "ea_premiki.h"
+  ],
+  "sha256_izvornih": {
+    "ea_energija.ino": "b595a0187ab8362a9fe984f9877bcd1ea1d6dc602396a0a1defe76a72d00ec73",
+    "ea_jedro.h": "8f742026a9d72fbbe0ff999191d68bd0ebf773da096b25628c75bbcb17b85265",
+    "ea_premiki.h": "882cd95f8103366cf804f397e5e4e462c8a923dbdf7b421f37fa22d98f7b12be"
+  },
+  "sha256_skupna": "ee7a7e90778cb91f873a96a983f52cd0d15e2bd60d94d783602571e1587775fc",
+  "fqbn_zahtevan": "esp32:esp32:esp32:CPUFreq=240,FlashMode=qio,FlashFreq=80,FlashSize=4M,PartitionScheme=default,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1",
+  "pripravljeno_z": "Mac_2_pripravi.py"
+}

@@ -1,0 +1,41 @@
+OBNOVA IZBRISANIH ZAPISOV iz kopije flasha
+Podatki so iz blokov LittleFS, ki jih program ni več uporabljal (izbrisana datoteka
+rez.bin). Vsak zapis je bil zapisan z istim programom kot ob meritvi, zato so vrednosti
+nespremenjene; manjka pa podatek, kateri seji in kateremu posnetku RIGOL pripadajo.
+Sejo prepoznate po številu zapisov, vrstnem redu algoritmov in primerjavi z izpisi
+esp32.txt, če jih imate. Prepis bloka je mogoč samo za datoteke do enega bloka.
+
+obnovljeno_01_zapis108B_30zapisov.csv: blok 149, 30 zapisov, oblika 108 B, trajanja oken 60000-60006 ms
+obnovljeno_02_zapis108B_20zapisov.csv: blok 188, 20 zapisov, oblika 108 B, trajanja oken 60000-60006 ms
+obnovljeno_03_zapis112B_21zapisov.csv: blok 37, 21 zapisov, oblika 112 B, trajanja oken 10000-10007 ms
+obnovljeno_04_zapis112B_21zapisov.csv: blok 134, 21 zapisov, oblika 112 B, trajanja oken 10000-10007 ms
+obnovljeno_05_zapis112B_10zapisov.csv: blok 238, 10 zapisov, oblika 112 B, trajanja oken 10000-10007 ms
+obnovljeno_06_zapis112B_18zapisov.csv: blok 313, 18 zapisov, oblika 112 B, trajanja oken 10000-10007 ms
+
+Zgodovina stanja programa v NVS (po vrsti zapisa; izbrisani vnosi so starejši):
+  izbrisan prevod   = Nov 12 2026 10:42:26
+  izbrisan stanje   = 1   (seja teče)
+  izbrisan prevod   = Nov 12 2026 10:48:34
+  izbrisan stanje   = 1   (seja teče)
+  izbrisan stanje   = 2   (končana)
+  veljaven prevod   = Nov 13 2026 10:13:58
+  izbrisan stanje   = 4   (pripravljen (zapisi pobrisani))
+  izbrisan stanje   = 1   (seja teče)
+  izbrisan resetov  = 1
+  izbrisan resetov  = 2
+  izbrisan resetov  = 3
+  izbrisan resetov  = 4
+  izbrisan resetov  = 5
+  izbrisan resetov  = 6
+  izbrisan stanje   = 2   (končana)
+  izbrisan stanje   = 4   (pripravljen (zapisi pobrisani))
+  izbrisan resetov  = 0
+  izbrisan stanje   = 1   (seja teče)
+  izbrisan resetov  = 1
+  izbrisan resetov  = 2
+  izbrisan resetov  = 3
+  izbrisan stanje   = 2   (končana)
+  izbrisan stanje   = 4   (pripravljen (zapisi pobrisani))
+  izbrisan resetov  = 0
+  veljaven stanje   = 1   (seja teče)
+  veljaven resetov  = 1

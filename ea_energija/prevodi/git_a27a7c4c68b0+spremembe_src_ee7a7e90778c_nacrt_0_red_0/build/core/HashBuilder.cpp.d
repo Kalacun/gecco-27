@@ -1,0 +1,12 @@
+/Users/aleks/gecco2027-electricity/ea_energija/prevodi/git_a27a7c4c68b0+spremembe_src_ee7a7e90778c_nacrt_0_red_0/build/core/HashBuilder.cpp.o: \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/HashBuilder.cpp \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/HashBuilder.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/WString.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/pgmspace.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/newlib/platform_include/ctype.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/Stream.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/Print.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/newlib/platform_include/stdio.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/WString.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/Printable.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/HEXBuilder.h

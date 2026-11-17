@@ -1,0 +1,31 @@
+/Users/aleks/gecco2027-electricity/ea_energija/prevodi/git_a27a7c4c68b0+spremembe_src_ee7a7e90778c_nacrt_0_red_0/build/core/esp32-hal-periman.c.o: \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/esp32-hal-periman.c \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/esp32-hal-log.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/qio_qspi/include/sdkconfig.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_timer/include/esp_timer.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/newlib/platform_include/stdio.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_common/include/esp_err.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_common/include/esp_compiler.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_hw_support/include/esp_etm.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_rom/esp32/include/esp32/rom/ets_sys.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/log/include/esp_log.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_rom/include/esp_rom_sys.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/soc/esp32/include/soc/reset_reasons.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/soc/esp32/include/soc/soc_caps.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/log/include/esp_log_config.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/log/include/esp_log_level.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_common/include/esp_assert.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/log/include/esp_log_color.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/log/include/esp_log_buffer.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/log/include/esp_log_timestamp.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/log/include/esp_log_write.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/log/include/esp_log_format.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/log/include/esp_log_args.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_common/include/esp_macros.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_common/include/esp_assert.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/log/include/esp_log_attr.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_common/include/esp_attr.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/log/include/esp_private/log_attr.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/esp32-hal-periman.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/esp32-hal-ldo.h \
+ /Users/aleks/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.12/include/esp_common/include/esp_bit_defs.h

@@ -1,0 +1,73 @@
+Sketch uses 345316 bytes (26%) of program storage space. Maximum is 1310720 bytes.
+Global variables use 23884 bytes (7%) of dynamic memory, leaving 303796 bytes for local variables. Maximum is 327680 bytes.
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/Stream.cpp: In member function 'float Stream::parseFloat(LookaheadMode, char)':
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/Stream.cpp:191:10: warning: conversion from 'double' to 'float' may change value [-Wfloat-conversion]
+  191 |   return value;
+      |          ^~~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp: In function 'void _printMemCapsInfo(uint32_t, const char*)':
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:25:42: warning: implicit conversion from 'float' to 'double' to match other operand of binary expression [-Wdouble-promotion]
+   25 | #define b2kb(b)                ((float)b / 1024.0)
+      |                                 ~~~~~~~~~^~~~~~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:33:89: note: in expansion of macro 'b2kb'
+   33 |   chip_report_printf("  Total Size        : %8lu B (%6.1f KB)\n", (unsigned long)total, b2kb(total));
+      |                                                                                         ^~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:25:42: warning: implicit conversion from 'float' to 'double' to match other operand of binary expression [-Wdouble-promotion]
+   25 | #define b2kb(b)                ((float)b / 1024.0)
+      |                                 ~~~~~~~~~^~~~~~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:34:105: note: in expansion of macro 'b2kb'
+   34 |   chip_report_printf("  Free Bytes        : %8lu B (%6.1f KB)\n", (unsigned long)info.total_free_bytes, b2kb(info.total_free_bytes));
+      |                                                                                                         ^~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:25:42: warning: implicit conversion from 'float' to 'double' to match other operand of binary expression [-Wdouble-promotion]
+   25 | #define b2kb(b)                ((float)b / 1024.0)
+      |                                 ~~~~~~~~~^~~~~~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:35:110: note: in expansion of macro 'b2kb'
+   35 |   chip_report_printf("  Allocated Bytes   : %8lu B (%6.1f KB)\n", (unsigned long)info.total_allocated_bytes, b2kb(info.total_allocated_bytes));
+      |                                                                                                              ^~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:25:42: warning: implicit conversion from 'float' to 'double' to match other operand of binary expression [-Wdouble-promotion]
+   25 | #define b2kb(b)                ((float)b / 1024.0)
+      |                                 ~~~~~~~~~^~~~~~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:36:107: note: in expansion of macro 'b2kb'
+   36 |   chip_report_printf("  Minimum Free Bytes: %8lu B (%6.1f KB)\n", (unsigned long)info.minimum_free_bytes, b2kb(info.minimum_free_bytes));
+      |                                                                                                           ^~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:25:42: warning: implicit conversion from 'float' to 'double' to match other operand of binary expression [-Wdouble-promotion]
+   25 | #define b2kb(b)                ((float)b / 1024.0)
+      |                                 ~~~~~~~~~^~~~~~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:37:107: note: in expansion of macro 'b2kb'
+   37 |   chip_report_printf("  Largest Free Block: %8lu B (%6.1f KB)\n", (unsigned long)info.largest_free_block, b2kb(info.largest_free_block));
+      |                                                                                                           ^~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp: In function 'void printChipInfo()':
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:104:77: warning: implicit conversion from 'float' to 'double' to match other operand of binary expression [-Wdouble-promotion]
+  104 |   chip_report_printf("  Revision          : %.2f\n", (float)(info.revision) / 100.0);
+      |                                                      ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp: In function 'void printFlashInfo()':
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:26:42: warning: implicit conversion from 'float' to 'double' to match other operand of binary expression [-Wdouble-promotion]
+   26 | #define b2mb(b)                ((float)b / (1024.0 * 1024.0))
+      |                                 ~~~~~~~~~^~~~~~~~~~~~~~~~~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:138:82: note: in expansion of macro 'b2mb'
+  138 |   chip_report_printf("  Chip Size         : %8" PRIu32 "B (%.0f MB)\n", hw_size, b2mb(hw_size));
+      |                                                                                  ^~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:25:42: warning: implicit conversion from 'float' to 'double' to match other operand of binary expression [-Wdouble-promotion]
+   25 | #define b2kb(b)                ((float)b / 1024.0)
+      |                                 ~~~~~~~~~^~~~~~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:139:102: note: in expansion of macro 'b2kb'
+  139 |   chip_report_printf("  Block Size        : %8" PRIu32 "B (%6.1f KB)\n", g_rom_flashchip.block_size, b2kb(g_rom_flashchip.block_size));
+      |                                                                                                      ^~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:25:42: warning: implicit conversion from 'float' to 'double' to match other operand of binary expression [-Wdouble-promotion]
+   25 | #define b2kb(b)                ((float)b / 1024.0)
+      |                                 ~~~~~~~~~^~~~~~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:140:103: note: in expansion of macro 'b2kb'
+  140 |   chip_report_printf("  Sector Size       : %8" PRIu32 "B (%6.1f KB)\n", g_rom_flashchip.sector_size, b2kb(g_rom_flashchip.sector_size));
+      |                                                                                                       ^~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:25:42: warning: implicit conversion from 'float' to 'double' to match other operand of binary expression [-Wdouble-promotion]
+   25 | #define b2kb(b)                ((float)b / 1024.0)
+      |                                 ~~~~~~~~~^~~~~~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:141:101: note: in expansion of macro 'b2kb'
+  141 |   chip_report_printf("  Page Size         : %8" PRIu32 "B (%6.1f KB)\n", g_rom_flashchip.page_size, b2kb(g_rom_flashchip.page_size));
+      |                                                                                                     ^~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp: In function 'void printPartitionsInfo()':
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:25:42: warning: implicit conversion from 'float' to 'double' to match other operand of binary expression [-Wdouble-promotion]
+   25 | #define b2kb(b)                ((float)b / 1024.0)
+      |                                 ~~~~~~~~~^~~~~~~~
+/Users/aleks/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12/cores/esp32/chip-debug-report.cpp:174:116: note: in expansion of macro 'b2kb'
+  174 |         chip_report_printf("  %17s : addr: 0x%08" PRIX32 ", size: %7.1f KB", partition->label, partition->address, b2kb(partition->size));
+      |                                                                                                                    ^~~~
