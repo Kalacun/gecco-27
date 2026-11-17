@@ -27,7 +27,7 @@ the campaign (step F) until C and D pass.
  ────────────────────────────────────────           ───────────────────────────────────
  Mac_2_pripravi.py   (VRSTA, RED)
  Arduino IDE: Upload
- Mac_3_preveri_nalaganje.py  → "V redu"
+ Mac_3_preveri_nalaganje.py  → "VSE V REDU" (BOOT held, B2)
  unplug USB                         ──► close the switch ──►
                                                     PC_2_snemaj.py  (VRSTA, DATUM)
                                                     records; output off at the end
@@ -141,8 +141,8 @@ A raw copy of the flash avoids both, because with BOOT held the old program neve
 
 1. **Archive** every existing measurement folder (`meritve_*` with `rigol.csv`, `meta.json`, `esp32.txt`, ...) from
    the PC to an archive location. Do not touch the originals.
-2. **Switch open**, then on the board: **hold BOOT, plug the USB cable into the Mac, keep holding BOOT two more
-   seconds, release.** The old program is not running.
+2. **Switch open**, then put the board into its boot loader exactly as in section B2 (hold BOOT, plug in USB,
+   keep holding until the script prints percentages). The old program is then not running.
 3. **Mac, copy the flash** (about six minutes). It reads the whole 4 MB flash **without resetting the chip, before
    or after**, at 115200 baud (the most reliable speed), checks the size, stores `arhiv/<ime>/kopija_flash.bin` and
    its SHA-256, and extracts the old records into `arhiv/<ime>/zapisi/stari_zapisi.csv`:
@@ -154,8 +154,8 @@ A raw copy of the flash avoids both, because with BOOT held the old program neve
 4. Copy `arhiv/flash_2026-11-18` to the archive. Unplug USB.
 
 If the read fails, the script explains the error in Slovenian. For `No more data to read from the serial port` or
-`Failed to connect`: unplug USB, hold BOOT again, plug in (directly into the Mac, no hub, a data cable), release
-BOOT after two seconds and run the same command again; the same name is accepted until a copy is complete. Close
+`Failed to connect`: repeat the steps of section B2 and run the same command again; the same name is accepted until
+a copy is complete. Close
 the Serial Monitor of Arduino IDE first. If it keeps failing on a board with a CH340 chip, install the WCH driver.
 
 What the extraction may say:
@@ -189,6 +189,36 @@ setting back, compares, and starts only if they match.
 
 ---
 
+## B2. Plugging in the ESP32: with or without BOOT
+
+The board has two small buttons next to the USB socket: **EN** (sometimes **RST**) and **BOOT** (sometimes
+**IO0**). **Never press EN** during this procedure. Whether you hold BOOT while the board gets power decides what
+the chip does:
+
+| How the board gets power | What the ESP32 does | When |
+|---|---|---|
+| USB plugged in **while BOOT is held** | Stays in its boot loader; the program does **not** run. Safe. | Before `Mac_1` and before `Mac_3` |
+| Automatically right after **Upload** in Arduino IDE | The new program's first boot: it only prepares the board and goes to sleep. Safe. | After every Upload |
+| USB plugged in **without** BOOT, after an Upload and before the session | The new program **starts the session on USB power. Wrong.** `Mac_3` reports it and says how to fix it. | Never |
+| RIGOL output on (switch closed, USB out) | Starts the session. Correct. | `PC_2_snemaj.py` |
+| USB plugged in **without** BOOT after the session | Prints the records. | `Mac_4`, `Mac_6` |
+
+**How to put the board into its boot loader** (needed for `Mac_1` and `Mac_3`, because these scripts never reset
+the chip):
+
+1. Close the Serial Monitor in Arduino IDE.
+2. Unplug the USB cable and wait two seconds. The switch in the RIGOL lead is open.
+3. Press and **hold BOOT**.
+4. While holding BOOT, plug in the USB cable (directly into the Mac, no hub, a data cable).
+5. **Keep holding BOOT**, start the script, and release BOOT only when the script prints percentages
+   (`Reading ...`). Holding it a little longer does no harm.
+
+If the script prints `Failed to connect ... No serial data received`, the chip was not in its boot loader. The usual
+reasons are that USB stayed plugged in after Upload (the board is then not in its boot loader), BOOT was pressed
+only after the cable was plugged in, or EN was pressed. Repeat steps 1–5.
+
+---
+
 ## C. Self-test session (about 5 minutes of recording)
 
 Purpose: check the supply read-out and the energy calculation against loads whose result is known, and measure how
@@ -219,10 +249,20 @@ with an `#error`; the other settings are checked from the FQBN the program recor
 not open the Serial Monitor and do not press EN afterwards:** after a new build the first boot only prepares the
 board, the next boot starts a session, and that must happen on the RIGOL's power.
 
-**3. Mac, verify.** Close any Serial Monitor. **Unplug USB, hold BOOT, plug USB in, keep BOOT two more seconds,
-release** (the script never resets the chip, so it must already be in its boot loader). It reads the program back
-from the chip (about 45 s; the chip stays in its boot loader afterwards) and must end with `V redu`: exactly the
-expected build id, and the required board settings. **Then unplug USB.**
+**3. Mac, verify.** After "Done uploading", **do not leave USB plugged in**: the board is not in its boot loader
+now. Put it into the boot loader as in section B2: close the Serial Monitor, **unplug USB, hold BOOT, plug USB in,
+keep holding BOOT, run the command below, release BOOT when percentages appear.** The script reads the board's
+settings memory and the program back from the chip (about 50 s) and checks three things: the program carries the
+expected build id, the board settings are right, and the program is **ready** (`stanje 4, pripravljen`), i.e. no
+session has started yet. It must end with `VSE V REDU`. **Then unplug USB.**
+
+If it reports a problem, it says what to do. The two cases you may meet:
+
+* `novi program se po nalaganju še ni zagnal`: the board did not restart after Upload. Plug USB in **without** BOOT,
+  wait 10 s (the first boot only prepares the board), unplug, and verify again with BOOT.
+* `seja se je že začela`: the board was powered without BOOT after Upload and has started a session on USB. Plug
+  USB in without BOOT, wait 15 s, run `python3 Mac_6_pobrisi_zapise.py --potrjujem`, unplug, and verify again
+  with BOOT.
 
 ```bash
 python3 Mac_3_preveri_nalaganje.py
@@ -291,7 +331,8 @@ durations per cell and algorithm, targets reached) and then runs the full analys
    ```
 
 2. Mac, Arduino IDE: check *Tools*, **Upload**. No Serial Monitor, no EN.
-3. Mac, unplug USB, hold BOOT while plugging it in again, verify, then unplug USB:
+3. Mac, put the board into its boot loader (section B2: unplug, hold BOOT, plug in, keep holding until
+   percentages appear), verify (`VSE V REDU`), then unplug USB:
 
    ```bash
    python3 Mac_3_preveri_nalaganje.py
@@ -424,7 +465,8 @@ bytes). The steps are those of C with `kampanja`.
    ```
 
 2. Mac, Arduino IDE: check *Tools*, **Upload**. No Serial Monitor, no EN.
-3. Mac, unplug USB, hold BOOT while plugging it in again, verify, then unplug USB:
+3. Mac, put the board into its boot loader (section B2: unplug, hold BOOT, plug in, keep holding until
+   percentages appear), verify (`VSE V REDU`), then unplug USB:
 
    ```bash
    python3 Mac_3_preveri_nalaganje.py

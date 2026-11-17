@@ -112,8 +112,9 @@ write into an existing session folder, but keep a separate copy anyway.
 
 1. Open the switch in the RIGOL lead (or switch the output off). USB and RIGOL must never
    power the board together.
-2. **Hold the BOOT button on the board, plug in the USB cable, keep BOOT pressed for two more
-   seconds, release.** The chip is now in its boot loader and the old program is not running.
+2. **Press and hold BOOT (not EN), plug in the USB cable while holding it, keep holding, start
+   the command below and release BOOT when it prints percentages.** The chip is then in its boot
+   loader and the old program is not running.
 3. Run (about six minutes; the chip is not reset before or after the read):
 
    ```bash
@@ -131,7 +132,7 @@ write into an existing session folder, but keep a separate copy anyway.
    options: the default reset can start the old program, which may delete its records.
 
    If the read fails with `No more data to read from the serial port` or `Failed to connect`:
-   unplug USB, hold BOOT, plug in (directly, data cable), release BOOT after two seconds, run the
+   unplug USB, hold BOOT, plug in (directly, data cable), keep holding until percentages appear, run the
    command again (the same folder is accepted until a copy is complete). Close any serial monitor
    first. On boards with a CH340 chip, the WCH driver may be needed on macOS.
 
@@ -201,10 +202,12 @@ known, and measure how long a clock read and an evaluation take on the chip.
    python3 naprava.py preveri-nalozeno --port PORT
    ```
 
-   Before the second command unplug USB, hold BOOT, plug USB in and release BOOT after two
-   seconds: it never resets the chip. It reads the program back from the chip and checks that it
-   carries the build id from `ea_prevod.h` and the required board settings; it must end with
-   `V redu`.
+   After the upload the board is **not** in its boot loader. Before the second command unplug
+   USB, hold BOOT, plug USB in, keep holding, run the command and release BOOT when percentages
+   appear: it never resets the chip. It reads the board's settings memory and the program back and
+   checks the build id from `ea_prevod.h`, the board settings and that no session has started yet;
+   it must end with `VSE V REDU`. If it reports `seja se je že začela` or `novi program se po
+   nalaganju še ni zagnal`, it prints the fix.
    **Do not press EN and do not open a serial monitor now**: after a new build the first boot
    only prepares the board, the next boot starts a session, and that must happen on the RIGOL's
    power, not on USB.
@@ -269,7 +272,8 @@ from which T is set.
    python3 naprava.py preveri-nalozeno --port PORT
    ```
 
-   It must end with `V redu`. Unplug USB, close the switch.
+   Put the board into its boot loader before the second command (unplug, hold BOOT, plug in,
+   keep holding until percentages appear). It must end with `VSE V REDU`. Unplug USB, close the switch.
 
 2. **Record.**
 
@@ -408,7 +412,8 @@ Flash space is checked by the firmware before it starts (624 records × 488 byte
    ```
 
    The build output must **not** say `+spremembe` in the build id (that means uncommitted
-   changes; commit first). The check must end with `V redu`. Unplug USB, close the switch.
+   changes; commit first). Hold BOOT while plugging USB in before the check, as above; it must
+   end with `VSE V REDU`. Unplug USB, close the switch.
 
 2. **Record.** New folder; PC on mains power, updates paused.
 

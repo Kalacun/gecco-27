@@ -34,7 +34,7 @@ VRSTA, RED, DATUM = a.vrsta, a.red, a.datum
 SEJA = f"{DATUM}_{VRSTA}"
 NACRT = {"veriga": 0, "kampanja": 1, "samopreizkus": 2}
 r = subprocess.run([sys.executable, "generiraj_premike.py", "--preveri"], capture_output=True,
-                   text=True)
+                   text=True, encoding="utf-8", errors="replace")
 if r.returncode != 0:
     sys.exit("ea_premiki.h ni enak izhodu generiraj_premike.py:\n" + r.stdout + r.stderr)
 if VRSTA == "kampanja" and not os.path.isfile("ea_T.h"):

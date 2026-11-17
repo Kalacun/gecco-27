@@ -256,8 +256,8 @@ def snemaj_z_instrumentom(inst, naslov, args, ura=time.monotonic, pocakaj=time.s
     zadnji_dober = None        # t_po zadnjega veljavnega vzorca
     v_vrzeli = False
     razlog = "?"
-    with open(poti["rigol.csv"], "x", newline="") as f, \
-            open(poti["rigol_nacin.csv"], "x", newline="") as fn, \
+    with open(poti["rigol.csv"], "x", newline="", encoding="utf-8") as f, \
+            open(poti["rigol_nacin.csv"], "x", newline="", encoding="utf-8") as fn, \
             open(poti["rigol_dogodki.csv"], "x", newline="", encoding="utf-8") as fd:
         w, wn, wd = csv.writer(f), csv.writer(fn), csv.writer(fd)
         w.writerow(["t_pred_s", "t_po_s", "U_V", "I_A", "P_W"])
@@ -517,7 +517,7 @@ def preberi_sled(pot):
     Vrne slovar: t (sredina poizvedbe), p (W), u (V), nacini [(t, niz)]
     ali None, če datoteke z načinom ni."""
     t, p, u = [], [], []
-    with open(pot, newline="") as f:
+    with open(pot, newline="", encoding="utf-8") as f:
         bralnik = csv.DictReader(f)
         stolpci = bralnik.fieldnames or []
         if "t_pred_s" in stolpci and "t_po_s" in stolpci:
@@ -533,7 +533,7 @@ def preberi_sled(pot):
     nacini = None
     pot_nacin = os.path.join(os.path.dirname(os.path.abspath(pot)), "rigol_nacin.csv")
     if os.path.exists(pot_nacin):
-        with open(pot_nacin, newline="") as f:
+        with open(pot_nacin, newline="", encoding="utf-8") as f:
             nacini = [(0.5 * (float(vr["t_pred_s"]) + float(vr["t_po_s"])), vr["nacin"].strip())
                       for vr in csv.DictReader(f)]
     return {"t": t, "p": p, "u": u, "nacini": nacini}
@@ -1204,7 +1204,7 @@ def _analiza(args, mapa, nast):
     prag, nizka, visoka = najdeno["rob"], najdeno["nizka"], najdeno["visoka"]
     # Vsi najdeni intervali gredo v okna.csv PRED parjenjem, da jih je ob
     # napaki mogoče pregledati.
-    with open(os.path.join(mapa, "okna.csv"), "w", newline="") as f:
+    with open(os.path.join(mapa, "okna.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["vrsta", "t_zacetek_s", "t_konec_s", "trajanje_s", "P_povp_mW"])
         for vrsta, sez in (("okno", zagoni), ("kratek_interval", zavrzeni)):
@@ -1323,7 +1323,7 @@ def _analiza(args, mapa, nast):
         for razlog in razlogi:
             izlocitve.append({"zagon_i": v["zagon_i"], "poskus": v["poskus"], "alg": v["alg"],
                               "ponovitev": v["ponovitev"], "razlog": razlog})
-    with open(os.path.join(mapa, "izlocitve.csv"), "w", newline="") as f:
+    with open(os.path.join(mapa, "izlocitve.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=["zagon_i", "poskus", "alg", "ponovitev", "razlog"])
         w.writeheader()                              # datoteka obstaja tudi, ko je prazna
         w.writerows(izlocitve)
@@ -1332,7 +1332,7 @@ def _analiza(args, mapa, nast):
                     for r in sorted({x['razlog'] for x in izlocitve})))
 
     pot = os.path.join(mapa, "energija.csv")
-    with open(pot, "w", newline="") as f:
+    with open(pot, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(vrstice[0].keys()))
         w.writeheader()
         w.writerows(vrstice)
@@ -1340,7 +1340,7 @@ def _analiza(args, mapa, nast):
     for c in cilj_vrstice:
         c["veljaven"] = int(c["zagon_i"] in veljavni_i)
     for ime, vsebina in (("konvergenca_energija.csv", konv_vrstice), ("cilji.csv", cilj_vrstice)):
-        with open(os.path.join(mapa, ime), "w", newline="") as f:
+        with open(os.path.join(mapa, ime), "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=list(vsebina[0].keys()))
             w.writeheader()
             w.writerows(vsebina)
@@ -1389,7 +1389,7 @@ def _analiza(args, mapa, nast):
     for ime, vsebina in (("povzetek.csv", povzetek), ("testi.csv", testi),
                          ("kontrola.csv", kontrola), ("ert.csv", ert_vrstice)):
         if vsebina:
-            with open(os.path.join(mapa, ime), "w", newline="") as f:
+            with open(os.path.join(mapa, ime), "w", newline="", encoding="utf-8") as f:
                 w = csv.DictWriter(f, fieldnames=list(vsebina[0].keys()))
                 w.writeheader()
                 w.writerows(vsebina)
@@ -1779,7 +1779,7 @@ def analiza_samopreizkusa(args):
         cas_vrstice.append(v)
     for ime, vsebina in (("samopreizkus.csv", vrstice), ("samopreizkus_casi.csv", cas_vrstice)):
         if vsebina:
-            with open(os.path.join(mapa, ime), "w", newline="") as f:
+            with open(os.path.join(mapa, ime), "w", newline="", encoding="utf-8") as f:
                 w = csv.DictWriter(f, fieldnames=list(vsebina[0].keys()))
                 w.writeheader()
                 w.writerows(vsebina)

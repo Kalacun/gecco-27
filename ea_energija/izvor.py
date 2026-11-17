@@ -19,6 +19,19 @@ import hashlib
 import os
 import re
 import subprocess
+import sys
+
+
+def pripravi_konzolo():
+    """Izpis s šumniki ne sme sesuti skripte v konzoli, ki ne zna UTF-8 (Windows)."""
+    for tok in (sys.stdout, sys.stderr):
+        try:
+            tok.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
+pripravi_konzolo()
 
 MAPA = os.path.dirname(os.path.abspath(__file__))
 IZVORNE_STALNE = ("ea_energija.ino", "ea_jedro.h", "ea_premiki.h")
@@ -68,13 +81,19 @@ def zgostitev_izvora(mapa=MAPA, imena=None):
 
 
 def git_stanje():
-    """(revizija ali "", ali se izvorne datoteke razlikujejo od revizije ali None)."""
-    r = subprocess.run(["git", "-C", MAPA, "rev-parse", "HEAD"], capture_output=True, text=True)
+    """(revizija ali "", ali se izvorne datoteke razlikujejo od revizije ali None).
+    Brez nameščenega programa git vrne ("", None)."""
+    try:
+        r = subprocess.run(["git", "-C", MAPA, "rev-parse", "HEAD"], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace")
+    except OSError:
+        return "", None
     revizija = r.stdout.strip() if r.returncode == 0 else ""
     if not revizija:
         return "", None
     s = subprocess.run(["git", "-C", MAPA, "status", "--porcelain", "--"]
-                       + izvorne_datoteke(), capture_output=True, text=True)
+                       + izvorne_datoteke(), capture_output=True, text=True, encoding="utf-8",
+                       errors="replace")
     return revizija, bool(s.stdout.strip())
 
 

@@ -65,7 +65,8 @@ def cli_ukaz(cli):
 
 
 def pozeni(ukaz, **kw):
-    return subprocess.run(ukaz, capture_output=True, text=True, **kw)
+    return subprocess.run(ukaz, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", **kw)
 
 
 def sha256(pot):

@@ -47,7 +47,7 @@ def najdi_esptool():
         if najdeni:
             return [najdeni[-1]]
     r = subprocess.run([sys.executable, "-m", "esptool", "version"], capture_output=True,
-                       text=True)
+                       text=True, encoding='utf-8', errors='replace')
     if r.returncode == 0:
         return [sys.executable, "-m", "esptool"]
     return None
@@ -66,8 +66,14 @@ def razlozi_napako(izpis):
     """Kratka razlaga pogostih napak esptool v slovenščini (ali "")."""
     if re.search(r"Failed to connect|Wrong boot mode|waiting for packet header|"
                  r"Invalid head of packet", izpis, re.I):
-        return ("ESP32 ni v nalagalniku. Odklopite USB, DRŽITE BOOT, priklopite USB, BOOT "
-                "držite še 2 s, spustite in poženite znova.")
+        return ("ESP32 ni v nalagalniku (ni odgovoril). Skripta ga ne ponastavi, zato mora biti v\n"
+                "nalagalniku že od vklopa. Po Upload v Arduino IDE NI v nalagalniku. Naredite:\n"
+                "  1. odklopite USB kabel iz Maca (ali iz ploščice) in počakajte 2 s,\n"
+                "  2. pritisnite in DRŽITE tipko BOOT (na ploščici, običajno desno od USB; ne EN/RST),\n"
+                "  3. medtem ko držite BOOT, priklopite USB kabel,\n"
+                "  4. BOOT držite še naprej, poženite skripto in tipko spustite šele, ko se\n"
+                "     izpiše 'Reading' ali odstotki branja,\n"
+                "  5. zaprite Serial Monitor v Arduino IDE (in druge programe na teh vratih).")
     if re.search(r"No more data to read|serial data stream stopped|Errno 6|"
                  r"device reports readiness|Device not configured", izpis, re.I):
         return ("Povezava se je prekinila. Odklopite USB, DRŽITE BOOT, priklopite USB (po "
@@ -95,7 +101,7 @@ def preberi_flash(port, odmik, velikost, izhod, baud=PRIVZETA_HITROST, esptool=N
         if os.path.exists(delno):
             os.remove(delno)
         r = subprocess.run(esptool + esptool_argumenti(port, baud, odmik, velikost, delno, nova),
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
         izpis = r.stdout + r.stderr
         if r.returncode == 0 and os.path.isfile(delno):
             os.replace(delno, izhod)
@@ -127,6 +133,19 @@ def najdi_vrata(podana=""):
     except ImportError:
         pass
     return ""
+
+
+def esp32_priklopljen(nastavljena_vrata=""):
+    """Ali je ESP32 trenutno priklopljen prek USB (njegova serijska vrata obstajajo)."""
+    try:
+        from serial.tools import list_ports
+        prisotna = [p.device for p in list_ports.comports()]
+    except ImportError:
+        prisotna = None
+    if nastavljena_vrata:
+        return nastavljena_vrata in prisotna if prisotna is not None else os.path.exists(
+            nastavljena_vrata)
+    return bool(najdi_vrata(""))
 
 
 def sha256_datoteke(pot):
@@ -284,7 +303,7 @@ def kopija_flash(mapa, port="", izpis=print, baud=PRIVZETA_HITROST):
         izpis(f"Kopija ima {os.path.getsize(kopija)} B namesto {FLASH_VELIKOST} B; ni popolna.")
         return 1
     sha = sha256_datoteke(kopija)
-    with open(os.path.join(mapa, "kopija_flash.sha256"), "x") as f:
+    with open(os.path.join(mapa, "kopija_flash.sha256"), "x", encoding="utf-8") as f:
         f.write(f"{sha}  kopija_flash.bin\n")
     izpis(f"Kopija je popolna, SHA-256 {sha}.\nIzvlečem stare zapise ...")
     r = subprocess.run([sys.executable, os.path.join(izvor.MAPA, "stari_zapisi.py"), kopija,
@@ -296,8 +315,63 @@ def kopija_flash(mapa, port="", izpis=print, baud=PRIVZETA_HITROST):
     return 0
 
 
+NVS_ODMIK, NVS_VELIKOST = 0x9000, 0x5000
+IMENA_STANJ = {1: "seja teče", 2: "seja končana", 3: "napaka", 4: "pripravljen",
+               5: "seja prekinjena"}
+
+
+def stanje_iz_nvs(nvs):
+    """Zadnje veljavne vrednosti programa v NVS: {'prevod', 'stanje', 'resetov'} (ali None)."""
+    import stari_zapisi
+    zadnje = {"prevod": None, "stanje": None, "resetov": None}
+    for veljavnost, kljuc, vred in stari_zapisi.zgodovina_nvs(nvs):
+        if veljavnost == "veljaven" and kljuc in zadnje:
+            zadnje[kljuc] = vred
+    for k in ("stanje", "resetov"):
+        if zadnje[k] is not None:
+            zadnje[k] = int(zadnje[k])
+    return zadnje
+
+
+def oceni_stanje(st, pricakovana_oznaka, slika_ok=True):
+    """Ali je ESP32 pripravljen za sejo. Vrne (ok, sporocila). Navodilo za
+    zagon brez BOOT se da samo, če je v flashu res novi program (slika_ok)."""
+    sp = [f"Stanje programa v NVS: oznaka '{st['prevod']}', stanje "
+          f"{st['stanje']} ({IMENA_STANJ.get(st['stanje'], 'neznano')}), resetov {st['resetov']}"]
+    if st["prevod"] != pricakovana_oznaka and not slika_ok:
+        sp.append("NAPAKA: na ESP32 ni pričakovanega programa (glejte zgoraj). Ponovite Upload v "
+                  "Arduino IDE in počakajte na 'Done uploading'. Do takrat ESP32 ne priklapljajte "
+                  "brez tipke BOOT.")
+        return False, sp
+    if st["prevod"] != pricakovana_oznaka:
+        sp.append("NAPAKA: novi program se po nalaganju še ni zagnal (v NVS je oznaka prejšnjega "
+                  "programa). To je varno popraviti: odklopite USB, priklopite ga BREZ tipke BOOT, "
+                  "počakajte 10 s (prvi zagon novega programa samo pripravi ploščico in zaspi), "
+                  "odklopite, nato znova z BOOT in ponovite to preverjanje. Če Upload v Arduino IDE ni "
+                  "končal z 'Done uploading', ga najprej ponovite.")
+        return False, sp
+    if st["stanje"] == 4:
+        sp.append("V redu: program je pripravljen; seja se začne ob naslednjem vklopu (RIGOL).")
+        return True, sp
+    if st["stanje"] in (1, 5):
+        sp.append("NAPAKA: seja se je že začela (ESP32 je bil vklopljen BREZ tipke BOOT po nalaganju, "
+                  "npr. ob priklopu USB ali s tipko EN). Popravek: odklopite USB, priklopite ga "
+                  "BREZ BOOT in počakajte 15 s (program sejo označi kot prekinjeno in začne izpisovati), "
+                  "poženite Mac_6_pobrisi_zapise.py --potrjujem, odklopite, nato znova z BOOT in "
+                  "ponovite to preverjanje.")
+        return False, sp
+    if st["stanje"] == 2:
+        sp.append("NAPAKA: ta program je že izvedel celotno sejo. Če njenih zapisov še niste prebrali, "
+                  "najprej Mac_4_preberi.py; nato Mac_6_pobrisi_zapise.py --potrjujem.")
+        return False, sp
+    sp.append("NAPAKA: program je v stanju napake ali neznanem stanju. Preberite izpis z "
+              "Mac_4_preberi.py (priklop brez BOOT) in mi ga pošljite.")
+    return False, sp
+
+
 def preveri_nalozeno(port="", izpis=print, baud=PRIVZETA_HITROST):
-    """Prebere program iz flasha in preveri oznako iz ea_prevod.h in nastavitve plošče."""
+    """Prebere NVS in program iz flasha (en klic esptool) in preveri oznako iz
+    ea_prevod.h, nastavitve plošče in da je program pripravljen za sejo."""
     import tempfile
     pricakovano = izvor.preberi_prevod_h()
     if pricakovano is None:
@@ -309,20 +383,26 @@ def preveri_nalozeno(port="", izpis=print, baud=PRIVZETA_HITROST):
         return 1
     with tempfile.TemporaryDirectory() as tmp:
         pot = os.path.join(tmp, "app.bin")
-        izpis(f"Vrata {port}, hitrost {baud}. Berem program iz flasha (okoli 45 s; "
+        izpis(f"Vrata {port}, hitrost {baud}. Berem NVS in program iz flasha (okoli 50 s; "
               "ESP32 se ne ponastavi) ...")
-        ok, tekst = preberi_flash(port, APP_ODMIK, APP_BRANJE, pot, baud=baud)
+        dolzina = APP_ODMIK + APP_BRANJE - NVS_ODMIK
+        ok, tekst = preberi_flash(port, NVS_ODMIK, dolzina, pot, baud=baud)
         if not ok:
             izpis(tekst[-1500:])
             izpis("Branje ni uspelo (razlaga zgoraj).")
             return 1
         with open(pot, "rb") as f:
-            slika = f.read()
+            podatki = f.read()
+    nvs = podatki[:NVS_VELIKOST]
+    slika = podatki[APP_ODMIK - NVS_ODMIK:]
     ok, sporocila = preveri_sliko(slika, pricakovano[0])
     izpis(f"Pričakovana oznaka: {pricakovano[0]}")
     izpis("\n".join(sporocila))
-    izpis("Odklopite USB. Seja se začne ob vklopu z RIGOL-om (stikalo zaprto)." if ok else
-          "Ne nadaljujte. Popravite in ponovno naložite.")
+    ok_st, sp_st = oceni_stanje(stanje_iz_nvs(nvs), pricakovano[0], slika_ok=ok)
+    izpis("\n".join(sp_st))
+    ok = ok and ok_st
+    izpis("\nVSE V REDU. Odklopite USB. Seja se začne ob vklopu z RIGOL-om (stikalo zaprto)." if ok
+          else "\nNe nadaljujte s snemanjem, dokler to preverjanje ne javi VSE V REDU.")
     return 0 if ok else 1
 
 

@@ -1,6 +1,7 @@
-# Računalnik z RIGOL-om (PyCharm interpreter). Mac za Arduino IDE ne potrebuje nobenega paketa
-# (esptool je del jedra esp32 v Arduino IDE).
+# Paketi za PyCharm (Windows PC z RIGOL-om in ESP32, ali PC z RIGOL-om ob Macu).
+# Namestitev: python -m pip install -r requirements.txt
 pyvisa
 pyvisa-py
 pyserial
+esptool
 matplotlib

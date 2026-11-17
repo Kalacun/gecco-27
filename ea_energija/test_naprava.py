@@ -104,6 +104,7 @@ class TestEsptool(unittest.TestCase):
         self.assertIn("zasedena", naprava.razlozi_napako("could not open port: Resource busy"))
         self.assertEqual(naprava.razlozi_napako("kaj drugega"), "")
 
+    @unittest.skipIf(os.name == "nt", "lažni esptool je skripta za sh")
     def test_neuspelo_branje_ne_pusti_delne_datoteke(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -122,6 +123,7 @@ class TestEsptool(unittest.TestCase):
             self.assertFalse(os.path.exists(izhod + ".delno"))
             self.assertIn("Povezava se je prekinila", izpis)
 
+    @unittest.skipIf(os.name == "nt", "lažni esptool je skripta za sh")
     def test_uspelo_branje_preimenuje_delno_datoteko(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -199,6 +201,73 @@ class TestBrisanje(unittest.TestCase):
         ser.vrstice = [b"REZ,...\n"] * 3                      # #KONEC_IZPISA nikoli ne pride
         self.assertFalse(naprava.izbrisi_zapise(ser, najdlje_s=0.3, izpis=lambda x: None))
         self.assertEqual(ser.poslano, [])
+
+
+def nvs_stran(vnosi):
+    """Sintetična stran NVS (ESP-IDF): vnosi = [(kljuc, 'U8'|'STR', vrednost, veljaven)]."""
+    import struct
+    zapisi, stanja = [], []
+    for kljuc, vrsta, vred, veljaven in vnosi:
+        k = kljuc.encode().ljust(16, b"\0")
+        if vrsta == "U8":
+            zapisi.append(bytes([4, 0x01, 1, 0xFF]) + b"\0" * 4 + k + bytes([vred]) + b"\xff" * 7)
+            stanja.append(veljaven)
+        else:
+            podatki = vred.encode() + b"\0"
+            span = 1 + (len(podatki) + 31) // 32
+            zapisi.append(bytes([4, 0x21, span, 0xFF]) + b"\0" * 4 + k
+                          + struct.pack("<HH", len(podatki), 0xFFFF) + b"\0" * 4)
+            telo = podatki.ljust((span - 1) * 32, b"\xff")
+            zapisi += [telo[i:i + 32] for i in range(0, len(telo), 32)]
+            stanja += [veljaven] * span
+    bitna = bytearray(b"\xff" * 32)
+    for i, v in enumerate(stanja):
+        vrednost = 0b10 if v else 0b00
+        bitna[i // 4] &= ~(0b11 << ((i % 4) * 2)) & 0xFF
+        bitna[i // 4] |= vrednost << ((i % 4) * 2)
+    stran = struct.pack("<II", 0xFFFFFFFE, 0) + b"\xff" * 24 + bytes(bitna) + b"".join(zapisi)
+    stran = stran.ljust(4096, b"\xff")
+    return stran + b"\xff" * (0x5000 - 4096)
+
+
+class TestStanjeNVS(unittest.TestCase):
+    OZN = "git:0123456789ab src:ba9876543210 nacrt:2 red:0"
+
+    def test_pripravljen(self):
+        nvs = nvs_stran([("prevod", "STR", "Nov 13 2026 10:13:58", False), ("stanje", "U8", 2, False),
+                         ("prevod", "STR", self.OZN, True), ("stanje", "U8", 4, True)])
+        st = naprava.stanje_iz_nvs(nvs)
+        self.assertEqual((st["prevod"], st["stanje"]), (self.OZN, 4))
+        ok, sp = naprava.oceni_stanje(st, self.OZN)
+        self.assertTrue(ok, sp)
+
+    def test_seja_ze_zacela(self):
+        nvs = nvs_stran([("prevod", "STR", self.OZN, True), ("stanje", "U8", 4, False),
+                         ("stanje", "U8", 1, True), ("resetov", "U8", 1, True)])
+        ok, sp = naprava.oceni_stanje(naprava.stanje_iz_nvs(nvs), self.OZN)
+        self.assertFalse(ok)
+        self.assertIn("seja se je že začela", "\n".join(sp))
+
+    def test_novi_program_se_se_ni_zagnal(self):
+        nvs = nvs_stran([("prevod", "STR", "Nov 13 2026 10:13:58", True), ("stanje", "U8", 1, True)])
+        st = naprava.stanje_iz_nvs(nvs)
+        ok, sp = naprava.oceni_stanje(st, self.OZN, slika_ok=True)
+        self.assertFalse(ok)
+        self.assertIn("BREZ tipke BOOT", "\n".join(sp))
+        ok, sp = naprava.oceni_stanje(st, self.OZN, slika_ok=False)  # star program: brez zagona!
+        self.assertFalse(ok)
+        self.assertNotIn("BREZ tipke BOOT", "\n".join(sp))
+        self.assertIn("Ponovite Upload", "\n".join(sp))
+
+    def test_prava_nvs_iz_arhiva(self):
+        pot = os.path.join(os.path.dirname(os.path.abspath(__file__)), "arhiv", "flash_2026-11-18",
+                           "kopija_flash.bin")
+        if not os.path.exists(pot):
+            self.skipTest("ni arhivske kopije")
+        with open(pot, "rb") as f:
+            f.seek(0x9000)
+            st = naprava.stanje_iz_nvs(f.read(0x5000))
+        self.assertEqual(st, {"prevod": "Nov 13 2026 10:13:58", "stanje": 1, "resetov": 1})
 
 
 class TestKoraki(unittest.TestCase):

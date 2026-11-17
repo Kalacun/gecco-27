@@ -6,12 +6,14 @@
 Sliko datotečnega sistema ustvari mklittlefs iz paketa esp32; če orodja ni,
 se test z datotečnim sistemom preskoči."""
 import csv
+import io
 import os
 import struct
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import stari_zapisi  # noqa: E402
@@ -91,6 +93,64 @@ class TestStariZapisi(unittest.TestCase):
                             os.path.join(self.mapa, "izhod")], capture_output=True, text=True)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("cela", r.stderr)
+
+
+def zapis_108(i):
+    return stari_zapisi.STARI_108.pack(i % 3, i // 3, 100, 800000 + i, 8000 + i, 60000 + i, 0, 0,
+                                       2.0 * (i + 1), *[float(30 - k) for k in range(20)])
+
+
+class TestObnova(unittest.TestCase):
+    """Obnova izbrisanih različic iz blokov LittleFS (sintetična particija)."""
+
+    def particija(self):
+        bloki = []
+        for n in range(1, 6):                                   # seja A: 1..5 zapisov (112 B)
+            bloki.append(b"".join(stari_zapis(i) for i in range(n)))
+        for n in range(1, 4):                                   # seja B: 1..3 zapisi (108 B)
+            bloki.append(b"".join(zapis_108(i) for i in range(n)))
+        bloki.append(b"".join(stari_zapis(i) for i in range(5)))     # dvojnik najdaljše A
+        bloki.append(bytes(range(256)) * 16)                    # smeti
+        druga = [stari_zapis(i) for i in range(3)]              # seja C: drugačen 3. zapis
+        druga[2] = stari_zapisi.STARI.pack(2, 0, 0, 2, 0, 0, 100, 999, 9, 10001, 0, 0, 7.0,
+                                           *[1.0] * 20)
+        bloki.append(b"".join(druga))
+        return b"".join(b + b"\xff" * (stari_zapisi.BLOK - len(b)) for b in bloki)
+
+    def test_najdaljse_razlicice(self):
+        v = stari_zapisi.obnovi_izbrisane(self.particija())
+        povzetek = sorted((x["oblika"], len(x["zapisi"])) for x in v)
+        self.assertEqual(povzetek, [("108", 3), ("112", 3), ("112", 5)])
+        a = next(x for x in v if x["oblika"] == "112" and len(x["zapisi"]) == 5)
+        self.assertEqual(a["blok"], 4)                          # prvi blok z najdaljšo različico
+        self.assertEqual([z[7] for z in a["zapisi"]], [1000, 1001, 1002, 1003, 1004])
+        b = next(x for x in v if x["oblika"] == "108")
+        self.assertEqual([z[3] for z in b["zapisi"]], [800000, 800001, 800002])
+
+    def test_obnova_zapise_csv_in_zgodovino(self):
+        mapa = os.path.join(self.mapa, "obnova")
+        izpis = io.StringIO()
+        with redirect_stdout(izpis):
+            stari_zapisi.obnova(self.particija(), b"\xff" * 0x5000, mapa)
+        datoteke = sorted(os.listdir(mapa))
+        self.assertEqual(len([d for d in datoteke if d.endswith(".csv")]), 3)
+        self.assertIn("obnovljeno_povzetek.txt", datoteke)
+        v = self.beri(os.path.join(mapa, [d for d in datoteke if "108B" in d][0]))
+        self.assertEqual((v[2]["fe"], v[2]["cas_ms"], v[2]["poskus"]), ("800002", "60002", ""))
+        with self.assertRaises(FileExistsError):                # mapa se ne prepiše
+            with redirect_stdout(io.StringIO()):
+                stari_zapisi.obnova(self.particija(), b"\xff" * 0x5000, mapa)
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.mapa = self._tmp.name
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def beri(self, pot):
+        with open(pot, newline="") as f:
+            return list(csv.DictReader(f))
 
 
 if __name__ == "__main__":

@@ -1,17 +1,17 @@
 # Lab guide: which version to use
 
-Both versions run the same firmware, write the same records and apply the same checks. Pick one per
-session; you can switch between them.
+All three versions run the same firmware, write the same records and apply the same checks. Pick one
+per session; you can switch between them.
 
-| | **IDE version** — `LAB_GUIDE_IDE.md` | **Command-line version** — `LAB_GUIDE_CLI.md` |
-|---|---|---|
-| Firmware build and upload | Arduino IDE on the Mac (Upload button) | `python3 prevedi.py ... --nalozi` (`arduino-cli`) |
-| Recording and analysis | PyCharm on the PC next to the RIGOL (`PC_*.py`, settings at the top of each file) | `python3 zajem.py ...` in a terminal |
-| Machines | Mac (ESP32 on USB) + PC (RIGOL); data cross in `prenos/<session>` | One computer connected to both |
-| Helper steps | `Mac_1`…`Mac_6` scripts | `python3 naprava.py <command>` (the same functions) |
-| Copy-paste | Every step that runs a script shows its command in a copy box | Every step shows its commands in copy boxes |
+| | **Windows, one PC** — `LAB_GUIDE_WINDOWS.md` (slovensko) | **IDE version** — `LAB_GUIDE_IDE.md` | **Command-line version** — `LAB_GUIDE_CLI.md` |
+|---|---|---|---|
+| Machines | One Windows PC connected to the RIGOL and the ESP32 | Mac (ESP32 on USB) + PC (RIGOL); data cross in `prenos/<session>` | One computer connected to both |
+| Firmware build and upload | PyCharm: `W2_pripravi_in_nalozi.py` (`arduino-cli`) | Arduino IDE on the Mac (Upload button) | `python3 prevedi.py ... --nalozi` |
+| Recording and analysis | PyCharm: `W4`, `W5`, `W6` | PyCharm on the PC (`PC_*.py`) | `python3 zajem.py ...` |
+| Session settings | One file, `seja_nastavitve.py`; the session name is kept automatically | Settings or options per script | Options per command |
+| Helper steps | `W0` check, `W1` flash copy, `W3` verify, `W7` T, `W8` erase | `Mac_1`…`Mac_6` | `python3 naprava.py <command>` |
 
-## What is common to both
+## What is common to all three
 
 * The order of work: **A** rescue old data → **B** wiring → **C** self-test → **D** chain test → **E** fix T and
   thresholds, commit → **F** campaign.
