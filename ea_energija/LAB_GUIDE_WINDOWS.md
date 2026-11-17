@@ -171,7 +171,10 @@ seja: <datum>_samopreizkus` in navodilom za naslednji korak.
 
 **C3. Preverjanje.** Izklopite USB kabel ESP32, **držite BOOT, priklopite, BOOT držite**, poženite
 **`W3_preveri_nalaganje.py`**, BOOT spustite, ko se izpišejo odstotki (okoli 50 s). Preveri, da je na čipu
-pravi program, da so nastavitve plošče prave in da se seja še ni začela. Mora končati z **`VSE V REDU`**.
+pravi program, da so nastavitve plošče prave in da se seja še ni začela. Če ESP32 na prvi poskus ne
+odgovori, skripta izpiše `Ponastavljam ga v nalagalnik …` in ga ponastavi sama; zato **BOOT držite, dokler
+se ne izpišejo odstotki**, ne glede na to, koliko pik `Connecting....` se izpiše. Mora končati z
+**`VSE V REDU`**.
 Nato **izklopite USB kabel ESP32**.
 
 Če javi težavo, pove, kaj storiti:

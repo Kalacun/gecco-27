@@ -6,7 +6,8 @@ plošče. ESP32 po branju OSTANE v nalagalniku: odklopite USB. Seja se začne
 šele ob vklopu z RIGOL-om.
 
 Pred zagonom: po Upload ODKLOPITE USB, DRŽITE BOOT, priklopite USB, BOOT držite
-še 2 s in spustite. Skripta ESP32 ne ponastavi, zato mora biti v nalagalniku.
+naprej in jo spustite šele, ko se izpišejo odstotki. Če ESP32 ne odgovori, ga skripta
+ponastavi v nalagalnik; zato mora biti BOOT med "Connecting..." še vedno pritisnjen.
 
 NE pritiskajte tipke EN in ne ponastavljajte ESP32 po nalaganju: ob naslednjem
 zagonu bi se seja začela na USB napajanju.

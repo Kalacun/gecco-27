@@ -93,13 +93,46 @@ class TestEsptool(unittest.TestCase):
             self.assertNotIn("default-reset", a)
             self.assertNotIn("default_reset", a)
 
+    def test_ponastavitev_samo_ce_je_zahtevana(self):
+        a = naprava.esptool_argumenti("COM3", 115200, 0x9000, 0x77000, "a.bin", True, ponastavi=True)
+        self.assertEqual(a[a.index("--before") + 1], "default-reset")
+        self.assertEqual(a[a.index("--after") + 1], "no-reset")          # po branju nikoli
+        b = naprava.esptool_argumenti("COM3", 115200, 0, 16, "b.bin", False, ponastavi=True)
+        self.assertEqual(b[b.index("--before") + 1], "default_reset")
+        self.assertEqual(b[b.index("--after") + 1], "no_reset")
+
+    @unittest.skipIf(os.name == "nt", "lažni esptool je skripta za sh")
+    def test_ponastavitev_ob_neodzivu(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            laz = os.path.join(tmp, "esptool")
+            with open(laz, "w") as f:
+                f.write("#!/bin/sh\n"
+                        'for a; do o="$a"; done\n'
+                        'case "$*" in *"--before no-reset"*) '
+                        'echo "A fatal error occurred: Failed to connect to ESP32: No serial data received."; '
+                        "exit 2;; esac\n"
+                        'printf abc > "$o"\n'
+                        "exit 0\n")
+            os.chmod(laz, 0o755)
+            izhod = os.path.join(tmp, "k.bin")
+            # kopija flasha (brez dovoljenja za ponastavitev): neuspeh
+            ok, _ = naprava.preberi_flash("COM9", 0, 3, izhod, esptool=[laz])
+            self.assertFalse(ok)
+            # preverjanje (z dovoljenjem): drugi poskus s ponastavitvijo uspe
+            sporocila = []
+            ok, tekst = naprava.preberi_flash("COM9", 0, 3, izhod, esptool=[laz],
+                                              ponastavi_ob_neodzivu=True, izpis=sporocila.append)
+            self.assertTrue(ok, tekst)
+            self.assertIn("BOOT mora biti še vedno pritisnjena", sporocila[0])
+
     def test_privzeta_hitrost_brez_spremembe(self):
         self.assertEqual(naprava.PRIVZETA_HITROST, 115200)
 
     def test_razlaga_napak(self):
         self.assertIn("Povezava se je prekinila", naprava.razlozi_napako(
             "A fatal error occurred: No more data to read from the serial port."))
-        self.assertIn("ni v nalagalniku", naprava.razlozi_napako(
+        self.assertIn("ESP32 ni odgovoril", naprava.razlozi_napako(
             "A fatal error occurred: Failed to connect to ESP32: No serial data received."))
         self.assertIn("zasedena", naprava.razlozi_napako("could not open port: Resource busy"))
         self.assertEqual(naprava.razlozi_napako("kaj drugega"), "")

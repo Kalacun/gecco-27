@@ -53,27 +53,29 @@ def najdi_esptool():
     return None
 
 
-def esptool_argumenti(port, baud, odmik, velikost, izhod, nova=True):
-    """Argumenti za branje flasha BREZ ponastavitve pred branjem in po njem.
-    nova = esptool 5 (read-flash, no-reset); sicer esptool 4 (read_flash,
-    no_reset)."""
-    uk, nr = ("read-flash", "no-reset") if nova else ("read_flash", "no_reset")
-    return ["--chip", "esp32", "--port", port, "--baud", str(baud), "--before", nr,
-            "--after", nr, uk, hex(odmik), hex(velikost), izhod]
+def esptool_argumenti(port, baud, odmik, velikost, izhod, nova=True, ponastavi=False):
+    """Argumenti za branje flasha. Po branju ESP32 NIKOLI ne ponastavi (--after
+    no-reset). Pred branjem ga ponastavi samo s ponastavi=True (--before
+    default-reset: esptool z linijama DTR/RTS sproži ponastavitev v nalagalnik;
+    to je varno samo, ko uporabnik drži tipko BOOT). nova = esptool 5, sicer 4."""
+    uk, nr, dr = (("read-flash", "no-reset", "default-reset") if nova else
+                  ("read_flash", "no_reset", "default_reset"))
+    return ["--chip", "esp32", "--port", port, "--baud", str(baud), "--before",
+            dr if ponastavi else nr, "--after", nr, uk, hex(odmik), hex(velikost), izhod]
 
 
 def razlozi_napako(izpis):
     """Kratka razlaga pogostih napak esptool v slovenščini (ali "")."""
     if re.search(r"Failed to connect|Wrong boot mode|waiting for packet header|"
                  r"Invalid head of packet", izpis, re.I):
-        return ("ESP32 ni v nalagalniku (ni odgovoril). Skripta ga ne ponastavi, zato mora biti v\n"
-                "nalagalniku že od vklopa. Po Upload v Arduino IDE NI v nalagalniku. Naredite:\n"
-                "  1. odklopite USB kabel iz Maca (ali iz ploščice) in počakajte 2 s,\n"
-                "  2. pritisnite in DRŽITE tipko BOOT (na ploščici, običajno desno od USB; ne EN/RST),\n"
-                "  3. medtem ko držite BOOT, priklopite USB kabel,\n"
-                "  4. BOOT držite še naprej, poženite skripto in tipko spustite šele, ko se\n"
-                "     izpiše 'Reading' ali odstotki branja,\n"
-                "  5. zaprite Serial Monitor v Arduino IDE (in druge programe na teh vratih).")
+        return ("ESP32 ni odgovoril. Preverite po vrsti:\n"
+                "  1. Arduino IDE in njegov Serial Monitor sta zaprta (zasedata vrata).\n"
+                "  2. Vrata so res ESP32: W0_preveri_namestitev.py izpiše vsa vrata z opisom (CP210x\n"
+                "     ali CH340). Če je napačna, vpišite pravo v PORT_ESP32 v seja_nastavitve.py.\n"
+                "  3. Izvlecite USB kabel, počakajte 2 s, DRŽITE BOOT (ne EN/RST), priklopite kabel,\n"
+                "     BOOT držite, poženite skripto in tipko spustite šele, ko se izpišejo odstotki.\n"
+                "  4. Drug USB kabel (za prenos podatkov) in drug USB priključek, brez razdelilca.\n"
+                "  5. Stikalo RIGOL-a je odprto (ploščico napaja samo USB).")
     if re.search(r"No more data to read|serial data stream stopped|Errno 6|"
                  r"device reports readiness|Device not configured", izpis, re.I):
         return ("Povezava se je prekinila. Odklopite USB, DRŽITE BOOT, priklopite USB (po "
@@ -86,7 +88,12 @@ def razlozi_napako(izpis):
     return ""
 
 
-def preberi_flash(port, odmik, velikost, izhod, baud=PRIVZETA_HITROST, esptool=None):
+NI_ODGOVORA = re.compile(r"Failed to connect|No serial data received|Wrong boot mode|"
+                         r"waiting for packet header", re.I)
+
+
+def preberi_flash(port, odmik, velikost, izhod, baud=PRIVZETA_HITROST, esptool=None,
+                  ponastavi_ob_neodzivu=False, izpis=None):
     """Prebere del flasha v datoteko. ESP32 mora biti v nalagalniku (BOOT ob
     priklopu); esptool ga ne ponastavi ne pred branjem ne po njem. Med branjem
     se piše v <izhod>.delno, ki se ob uspehu preimenuje v <izhod>, ob neuspehu
@@ -96,23 +103,34 @@ def preberi_flash(port, odmik, velikost, izhod, baud=PRIVZETA_HITROST, esptool=N
         return False, ("Ne najdem esptool. Namestite ga: python3 -m pip install esptool "
                        "(ali uporabite Arduino IDE z jedrom esp32).")
     delno = izhod + ".delno"
-    izpis = ""
-    for nova in (True, False):
-        if os.path.exists(delno):
-            os.remove(delno)
-        r = subprocess.run(esptool + esptool_argumenti(port, baud, odmik, velikost, delno, nova),
-                           capture_output=True, text=True, encoding='utf-8', errors='replace')
-        izpis = r.stdout + r.stderr
-        if r.returncode == 0 and os.path.isfile(delno):
-            os.replace(delno, izhod)
-            return True, izpis
-        if not re.search(r"invalid choice|No such command|Usage:|unrecognized|no such option",
-                         izpis, re.I):
-            break                                  # drug razlog (vrata, BOOT ...): ne ponavljaj
+    besedilo = ""
+    poskusi = [False] + ([True] if ponastavi_ob_neodzivu else [])
+    for ponastavi in poskusi:
+        if ponastavi:
+            msg = ("ESP32 brez ponastavitve ni odgovoril. Ponastavljam ga v nalagalnik (DTR/RTS); "
+                   "tipka BOOT mora biti še vedno pritisnjena ...")
+            (izpis or print)(msg)
+            besedilo += "\n" + msg + "\n"
+        for nova in (True, False):
+            if os.path.exists(delno):
+                os.remove(delno)
+            r = subprocess.run(esptool + esptool_argumenti(port, baud, odmik, velikost, delno, nova,
+                                                           ponastavi),
+                               capture_output=True, text=True, encoding='utf-8', errors='replace')
+            zadnji = r.stdout + r.stderr
+            if r.returncode == 0 and os.path.isfile(delno):
+                os.replace(delno, izhod)
+                return True, besedilo + zadnji
+            if not re.search(r"invalid choice|No such command|Usage:|unrecognized|no such option",
+                             zadnji, re.I):
+                break                              # drug razlog (vrata, BOOT ...): ne ponavljaj
+        besedilo += zadnji
+        if not NI_ODGOVORA.search(zadnji):
+            break                                  # ponastavitev ne bi pomagala
     if os.path.exists(delno):
         os.remove(delno)
-    razlaga = razlozi_napako(izpis)
-    return False, izpis + ("\n" + razlaga if razlaga else "")
+    razlaga = razlozi_napako(besedilo)
+    return False, besedilo + ("\n" + razlaga if razlaga else "")
 
 
 def najdi_vrata(podana=""):
@@ -383,10 +401,11 @@ def preveri_nalozeno(port="", izpis=print, baud=PRIVZETA_HITROST):
         return 1
     with tempfile.TemporaryDirectory() as tmp:
         pot = os.path.join(tmp, "app.bin")
-        izpis(f"Vrata {port}, hitrost {baud}. Berem NVS in program iz flasha (okoli 50 s; "
-              "ESP32 se ne ponastavi) ...")
+        izpis(f"Vrata {port}, hitrost {baud}. Berem NVS in program iz flasha (okoli 50 s). "
+              "Tipko BOOT držite, dokler se ne izpišejo odstotki ...")
         dolzina = APP_ODMIK + APP_BRANJE - NVS_ODMIK
-        ok, tekst = preberi_flash(port, NVS_ODMIK, dolzina, pot, baud=baud)
+        ok, tekst = preberi_flash(port, NVS_ODMIK, dolzina, pot, baud=baud,
+                                  ponastavi_ob_neodzivu=True, izpis=izpis)
         if not ok:
             izpis(tekst[-1500:])
             izpis("Branje ni uspelo (razlaga zgoraj).")

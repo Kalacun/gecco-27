@@ -204,7 +204,7 @@ known, and measure how long a clock read and an evaluation take on the chip.
 
    After the upload the board is **not** in its boot loader. Before the second command unplug
    USB, hold BOOT, plug USB in, keep holding, run the command and release BOOT when percentages
-   appear: it never resets the chip. It reads the board's settings memory and the program back and
+   appear (if the chip does not answer, the command resets it into the boot loader while BOOT is held). It reads the board's settings memory and the program back and
    checks the build id from `ea_prevod.h`, the board settings and that no session has started yet;
    it must end with `VSE V REDU`. If it reports `seja se je že začela` or `novi program se po
    nalaganju še ni zagnal`, it prints the fix.

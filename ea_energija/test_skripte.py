@@ -35,6 +35,8 @@ class TestSkripte(unittest.TestCase):
     def test_mac2_izpise_ukaze_z_zgostitvijo_in_imenom_seje(self):
         pot = os.path.join(MAPA, "ea_prevod.h")
         stara = open(pot, "rb").read() if os.path.exists(pot) else None
+        prevodi = os.path.join(MAPA, "prevodi")
+        prej = set(os.listdir(prevodi)) if os.path.isdir(prevodi) else None
         try:
             koda, izpis = zazeni("Mac_2_pripravi.py", "--vrsta", "samopreizkus", "--datum",
                                  "2026-11-18")
@@ -51,6 +53,11 @@ class TestSkripte(unittest.TestCase):
                 open(pot, "wb").write(stara)
             elif os.path.exists(pot):
                 os.remove(pot)
+            if os.path.isdir(prevodi):                 # mape, ki jih je ustvaril test, odstranimo
+                for d in set(os.listdir(prevodi)) - (prej or set()):
+                    shutil.rmtree(os.path.join(prevodi, d), ignore_errors=True)
+                if prej is None and not os.listdir(prevodi):
+                    os.rmdir(prevodi)
 
     def test_mac2_zavrne_neznano_vrsto_in_kampanjo_brez_ea_T(self):
         koda, _ = zazeni("Mac_2_pripravi.py", "--vrsta", "neznana")

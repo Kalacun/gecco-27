@@ -203,8 +203,8 @@ the chip does:
 | RIGOL output on (switch closed, USB out) | Starts the session. Correct. | `PC_2_snemaj.py` |
 | USB plugged in **without** BOOT after the session | Prints the records. | `Mac_4`, `Mac_6` |
 
-**How to put the board into its boot loader** (needed for `Mac_1` and `Mac_3`, because these scripts never reset
-the chip):
+**How to put the board into its boot loader** (needed for `Mac_1` and `Mac_3`; `Mac_1` never resets the chip,
+`Mac_3` resets it into the boot loader only if it does not answer, which is safe only while BOOT is held):
 
 1. Close the Serial Monitor in Arduino IDE.
 2. Unplug the USB cable and wait two seconds. The switch in the RIGOL lead is open.
