@@ -167,6 +167,72 @@ def statistika_period(casi):
             "perioda_max_s": d[-1], "fs_povp_Hz": 1.0 / povp if povp > 0 else 0.0}
 
 
+class ZaznavaKonca:
+    """Pravila konca snemanja iz sledi toka, NEODVISNA od tega, koliko toka
+    ploščica porabi v spanju (pretvornik USB-UART, LED in regulator na
+    ploščici so napajani s 3V3 in lahko porabijo več kot ESP32 sam).
+
+    tla      najnižja drseča mediana (zadnjih 5 vzorcev) toka po prvih
+             zacetek_tal_s sekundah od vklopa izhoda: poraba ploščice v spanju.
+    računa   vzorec s tokom nad tla + razlika_a. Računanje pri 240 MHz je
+             nekaj deset mA nad lahkim spanjem; razlika_a je zato varno pod tem.
+    začel    vsaj en vzorec je računal.
+    konec    ESP32 je začel IN v zadnjih cas_konec_s sekundah noben vzorec ni
+             računal IN v teh sekundah ni vrzeli, daljše od max_vrzel_s (vrzel
+             v povezavi ne sme izgledati kot spanje). Med sejo je najdaljši
+             premor brez računanja SPANJE_S + PO_OKNU_S (11 s), zato 60 s
+             pomeni globoko spanje na koncu seje.
+    oken     sproti prešteta obdobja računanja (ločena z več kot 3 s brez
+             računanja); samo za izpis napredka, analiza okna določi sama."""
+
+    def __init__(self, razlika_a, cas_konec_s, zacetek_tal_s=3.0, max_vrzel_s=2.0, mediana_n=5):
+        self.razlika, self.cas_konec = razlika_a, cas_konec_s
+        self.zacetek_tal, self.max_vrzel, self.mediana_n = zacetek_tal_s, max_vrzel_s, mediana_n
+        self.tla = None
+        self.zacel = False
+        self.oken = 0
+        self._zadnji = []          # zadnjih mediana_n tokov
+        self._nedavni = []         # (t, i) zadnjih cas_konec_s (+ rezerva) sekund
+        self._zadnji_racuna = None # čas zadnjega vzorca računanja
+        self.zadnji_spanje = None  # čas zadnjega vzorca na ravni spanja
+
+    def prag(self):
+        return None if self.tla is None else self.tla + self.razlika
+
+    def dodaj(self, t, i):
+        self._zadnji = (self._zadnji + [i])[-self.mediana_n:]
+        if t >= self.zacetek_tal and len(self._zadnji) == self.mediana_n:
+            med = sorted(self._zadnji)[self.mediana_n // 2]
+            if self.tla is None or med < self.tla:
+                self.tla = med
+        self._nedavni.append((t, i))
+        meja = t - self.cas_konec - 5.0
+        while self._nedavni and self._nedavni[0][0] < meja:
+            self._nedavni.pop(0)
+        prag = self.prag()
+        if prag is not None and i > prag:
+            self.zacel = True
+            # novo obdobje računanja: več kot 3 s po zadnjem vzorcu računanja
+            # (pisanje v flash 1 s po oknu se tako ne šteje posebej)
+            if self._zadnji_racuna is None or t - self._zadnji_racuna > 3.0:
+                self.oken += 1
+            self._zadnji_racuna = t
+        elif prag is not None:
+            self.zadnji_spanje = t
+
+    def konec(self, t):
+        prag = self.prag()
+        if not self.zacel or prag is None:
+            return False
+        od = t - self.cas_konec
+        okno = [(ti, ii) for ti, ii in self._nedavni if ti >= od]
+        if not okno or okno[0][0] - od > self.max_vrzel:
+            return False
+        if any(b[0] - a[0] > self.max_vrzel for a, b in zip(okno, okno[1:])):
+            return False
+        return all(ii <= prag for _, ii in okno)
+
+
 def snemaj(args):
     """Odpre napajalnik in posname sejo (glej snemaj_z_instrumentom)."""
     obstojece = [d for d in DATOTEKE_SNEMANJA + ("ea_energija.ino",)
@@ -242,7 +308,11 @@ def snemaj_z_instrumentom(inst, naslov, args, ura=time.monotonic, pocakaj=time.s
             "zajem_py_sha256": zgostitev, "python": sys.version.split()[0],
             "platforma": sys.platform,
             "pravila_konca": {"cas_konec_s": args.cas_konec_s, "cas_zacetka_s": args.cas_zacetka_s,
-                              "najdlje_s": args.najdlje_s, "prag_visok_mA": args.prag_visok_ma},
+                              "najdlje_s": args.najdlje_s, "razlika_mA": args.razlika_ma,
+                              "opis": "konec: zadnjih cas_konec_s s noben vzorec toka ni nad "
+                                      "tlemi + razlika_mA (tla = najnižja drseča mediana "
+                                      "5 vzorcev po 3 s); ESP32 ni začel: noben tak vzorec v "
+                                      "cas_zacetka_s s"},
             "stolpci_rigol_csv": "t_pred_s,t_po_s: monotona ura (s od začetka) tik pred "
                                  "poizvedbo in tik po njej; U_V,I_A,P_W: nizi iz enega odgovora"}
     with open(poti["meta.json"], "x", encoding="utf-8") as f:
@@ -250,7 +320,9 @@ def snemaj_z_instrumentom(inst, naslov, args, ura=time.monotonic, pocakaj=time.s
     prepreci_spanje_racunalnika()
     print(f"Snemam v {poti['rigol.csv']}.  Ctrl+C (PyCharm: rdeči gumb Stop) za ročno "
           "prekinitev.\n")
-    zadnji_visok = None        # čas zadnjega vzorca z visokim tokom
+    zaznava = ZaznavaKonca(args.razlika_ma / 1000.0, args.cas_konec_s)
+    pricakovano_oken = getattr(args, "pricakovano_oken", 0) or 0
+    pricakovano_s = getattr(args, "pricakovano_s", 0) or 0
     n, napak, n_nacin, ni_cv = 0, 0, 0, 0
     casi = []                  # sredine poizvedb (za statistiko periode)
     zadnji_dober = None        # t_po zadnjega veljavnega vzorca
@@ -326,19 +398,27 @@ def snemaj_z_instrumentom(inst, naslov, args, ura=time.monotonic, pocakaj=time.s
                 t = 0.5 * (ta + tb)
                 casi.append(t)
                 n += 1
+                zaznava.dodaj(t, i)
                 if n % 20 == 0:
                     f.flush()
-                    print(f"\r  t = {t:8.1f} s   I = {i*1000:7.2f} mA   "
-                          f"P = {p*1000:7.1f} mW   vzorcev: {n}   ", end="")
-                if i * 1000 > args.prag_visok_ma:
-                    zadnji_visok = t
+                    tla = "   ?  " if zaznava.tla is None else f"{zaznava.tla*1000:6.1f}"
+                    oken = f"{zaznava.oken}" + (f"/{pricakovano_oken}" if pricakovano_oken else "")
+                    cas = f"{t/60:6.1f} min" + (f" od ~{pricakovano_s/60:.0f}" if pricakovano_s
+                                                else "")
+                    pozor = ""
+                    if zaznava.zadnji_spanje is not None and t - zaznava.zadnji_spanje > 300:
+                        # Samo opozorilo: med sejo ESP32 spi vsaj vsakih nekaj deset s.
+                        pozor = (f"  POZOR: ESP32 že {(t - zaznava.zadnji_spanje) / 60:.0f} min "
+                                 "ne spi (ponovni zagon?)")
+                    print(f"\r  {cas}   I = {i*1000:7.2f} mA (spanje {tla} mA)   "
+                          f"P = {p*1000:7.1f} mW   oken ~{oken}   vzorcev: {n}{pozor}   ", end="")
                 # Pravila konca zavisijo samo od sledi, ne od lokalne kopije
                 # programa. Ali je seja popolna, preveri analiza iz glave
                 # izpisa ESP32 (načrtovano število zapisov).
-                if zadnji_visok is not None and t - zadnji_visok > args.cas_konec_s:
+                if zaznava.konec(t):
                     razlog = "konec poskusa (ESP32 ne računa več)"
                     break
-                if zadnji_visok is None and t > args.cas_zacetka_s:
+                if not zaznava.zacel and t > args.cas_zacetka_s:
                     razlog = "ESP32 ni začel računati"
                     break
                 if args.najdlje_s > 0 and t > args.najdlje_s:
@@ -357,7 +437,9 @@ def snemaj_z_instrumentom(inst, naslov, args, ura=time.monotonic, pocakaj=time.s
     konec = {"konec_ura_racunalnika": time.strftime("%Y-%m-%d %H:%M:%S %z"),
              "razlog_konca": razlog, "vzorcev": n, "napak_branja": napak,
              "trajanje_s": trajanje_snemanja, "vzorcev_nacina": n_nacin,
-             "vzorcev_nacina_ne_CV": ni_cv, "perioda": statistika_period(casi)}
+             "vzorcev_nacina_ne_CV": ni_cv, "perioda": statistika_period(casi),
+             "tla_spanja_mA": None if zaznava.tla is None else round(zaznava.tla * 1000, 3),
+             "oken_zaznanih_med_snemanjem": zaznava.oken}
     try:
         konec["stanje_ob_koncu"] = stanje_rigol(inst, k)
         konec["OVP_sprozen"] = inst.query(f":OUTP:OVP:QUES? {k}").strip()
@@ -375,6 +457,9 @@ def snemaj_z_instrumentom(inst, naslov, args, ura=time.monotonic, pocakaj=time.s
         json.dump(konec, f, indent=2, ensure_ascii=False)
     per = konec["perioda"]
     print(f"\n{razlog}. Shranjeno: {poti['rigol.csv']}  ({n} vzorcev, napak branja: {napak})")
+    if zaznava.tla is not None:
+        print(f"Tok v spanju (tla) {zaznava.tla*1000:.2f} mA; obdobij računanja med snemanjem "
+              f"~{zaznava.oken}" + (f" (načrt: {pricakovano_oken})" if pricakovano_oken else ""))
     if per:
         print(f"Vzorčenje: {per['fs_povp_Hz']:.2f} Hz povprečno; perioda mediana "
               f"{per['perioda_med_s']*1000:.1f} ms, std (tresenje) {per['perioda_std_s']*1000:.1f} ms, "
@@ -526,17 +611,79 @@ def preberi_sled(pot):
             cas = lambda vr: float(vr["t_s"])  # noqa: E731
         else:
             raise NapakaAnalize(f"{pot}: neznan zapis sledi (stolpci {stolpci})")
-        for vr in bralnik:
-            t.append(cas(vr))
-            p.append(float(vr["P_W"]))
-            u.append(float(vr["U_V"]))
+        vrstice = list(bralnik)
+    for k, vr in enumerate(vrstice):
+        try:
+            tk, pk, uk = cas(vr), float(vr["P_W"]), float(vr["U_V"])
+        except (TypeError, ValueError):
+            if k == len(vrstice) - 1:
+                # Snemanje, ki ga je ustavil operacijski sistem (npr. Stop v
+                # PyCharmu), lahko pusti nedokončano zadnjo vrstico. Izpustimo
+                # samo njo in to izpišemo.
+                print(f"OPOMBA: zadnja vrstica {pot} je nedokončana (snemanje je bilo "
+                      f"prekinjeno med pisanjem) in ni upoštevana: {dict(vr)}")
+                break
+            raise NapakaAnalize(f"{pot}: vrstica {k + 2} ni berljiva: {dict(vr)}")
+        t.append(tk)
+        p.append(pk)
+        u.append(uk)
     nacini = None
     pot_nacin = os.path.join(os.path.dirname(os.path.abspath(pot)), "rigol_nacin.csv")
     if os.path.exists(pot_nacin):
         with open(pot_nacin, newline="", encoding="utf-8") as f:
-            nacini = [(0.5 * (float(vr["t_pred_s"]) + float(vr["t_po_s"])), vr["nacin"].strip())
-                      for vr in csv.DictReader(f)]
+            vrstice_n = list(csv.DictReader(f))
+        nacini = []
+        for k, vr in enumerate(vrstice_n):
+            try:
+                nacini.append((0.5 * (float(vr["t_pred_s"]) + float(vr["t_po_s"])),
+                               vr["nacin"].strip()))
+            except (TypeError, ValueError, AttributeError):
+                if k == len(vrstice_n) - 1:
+                    print(f"OPOMBA: zadnja vrstica {pot_nacin} je nedokončana in ni upoštevana.")
+                    break
+                raise NapakaAnalize(f"{pot_nacin}: vrstica {k + 2} ni berljiva: {dict(vr)}")
     return {"t": t, "p": p, "u": u, "nacini": nacini}
+
+
+def kakovost_sledi(mapa):
+    """Kratek povzetek kakovosti posnetka v mapi seje (brez zapisov ESP32):
+    vzorčenje, najdaljša vrzel, napetost, način CV in dogodki. Vrne slovar
+    in ga izpiše. Uporabno tudi, ko se analiza ustavi."""
+    sled = preberi_sled(os.path.join(mapa, "rigol.csv"))
+    t, u = sled["t"], sled["u"]
+    v = {"vzorcev": len(t)}
+    if len(t) > 1:
+        razmiki = sorted(b - a for a, b in zip(t, t[1:]))
+        v.update(trajanje_s=t[-1] - t[0], fs_Hz=(len(t) - 1) / (t[-1] - t[0]),
+                 perioda_med_s=razmiki[len(razmiki) // 2], najdaljsa_vrzel_s=razmiki[-1],
+                 U_min_V=min(u), U_max_V=max(u))
+    if sled["nacini"] is not None:
+        v["odcitkov_nacina"] = len(sled["nacini"])
+        v["ne_CV"] = sum(1 for _, nac in sled["nacini"] if nac.upper() != "CV")
+    pot_d = os.path.join(mapa, "rigol_dogodki.csv")
+    if os.path.exists(pot_d):
+        with open(pot_d, newline="", encoding="utf-8") as f:
+            dog = list(csv.DictReader(f))
+        v["napak_poizvedb"] = sum(1 for d in dog if d.get("vrsta") == "napaka_poizvedbe")
+        vrz = [float(d["trajanje_s"]) for d in dog if d.get("vrsta") == "vrzel" and d.get("trajanje_s")]
+        v["vrzeli_nad_1s"] = sum(1 for x in vrz if x > 1.0)
+    pot_k = os.path.join(mapa, "meta_konec.json")
+    if os.path.exists(pot_k):
+        with open(pot_k, encoding="utf-8") as f:
+            v["razlog_konca"] = json.load(f).get("razlog_konca")
+    else:
+        v["razlog_konca"] = "ni meta_konec.json (snemanje je bilo ustavljeno od zunaj)"
+    print("Posnetek RIGOL-a:")
+    if len(t) > 1:
+        print(f"  {v['vzorcev']} vzorcev v {v['trajanje_s'] / 60:.1f} min, {v['fs_Hz']:.2f} Hz "
+              f"(perioda mediana {v['perioda_med_s'] * 1000:.0f} ms), najdaljša vrzel "
+              f"{v['najdaljsa_vrzel_s']:.2f} s, napetost {v['U_min_V']:.3f}-{v['U_max_V']:.3f} V")
+    if "ne_CV" in v:
+        print(f"  način: {v['odcitkov_nacina']} odčitkov, od tega ne CV: {v['ne_CV']}")
+    if "napak_poizvedb" in v:
+        print(f"  napak poizvedb: {v['napak_poizvedb']}, vrzeli nad 1 s: {v['vrzeli_nad_1s']}")
+    print(f"  konec snemanja: {v['razlog_konca']}")
+    return v
 
 
 def napake_sledi_v_oknu(sled, t0, t1, n):
@@ -1634,6 +1781,11 @@ def povzetek_zapisov(args):
     print(f"prevod = {param['prevod']}\nstanje = {param['stanje']}, zapisov {len(rez)} od "
           f"načrtovanih {param['zapisov_nacrt']}, resetov = {param['resetov']}, red = "
           f"{param['red']}, pokvarjenih zapisov (crc) = {sum(z['crc_ok'] != 1 for z in rez)}")
+    if param["stanje"] != "koncan":
+        print(f"SEJA NI KONČANA: stanje = {param['stanje']}, razlog ponovnega zagona = "
+              f"{RAZLOGI_RESETA.get(int(param.get('razlog_prekinitve', 0) or 0), '?')}, vrsta "
+              f"napake = {param.get('napaka_v', '?')}. (Razlog 'vklop napajanja' pomeni, da je "
+              "bilo napajanje izklopljeno med sejo.)")
     celice = list(dict.fromkeys((z["funkcija"], z["D"], z["nacin"], z["proracun"]) for z in rez))
     predlogi = []
     for c in celice:
@@ -1889,10 +2041,14 @@ def main():
                        help="koliko časa je izhod izklopljen pred začetkom (s)")
         a.add_argument("--pusti-vklopljeno", action="store_true",
                        help="po koncu ne izklopi izhoda")
-        a.add_argument("--prag-visok-ma", type=float, default=20.0,
-                       help="tok, nad katerim velja, da ESP32 računa (mA)")
+        a.add_argument("--razlika-ma", type=float, default=10.0,
+                       help="koliko mA nad tokom v spanju (tla) pomeni, da ESP32 računa")
         a.add_argument("--cas-konec-s", type=float, default=60.0,
                        help="koliko časa brez računanja pomeni konec poskusa (s)")
+        a.add_argument("--pricakovano-oken", type=int, default=0,
+                       help="samo za izpis napredka: načrtovano število merilnih oken")
+        a.add_argument("--pricakovano-s", type=float, default=0.0,
+                       help="samo za izpis napredka: približno trajanje seje (s)")
 
     a = sub.add_parser("snemaj", help="nastavi RIGOL, vklopi izhod, snema do konca poskusa")
     snemanje_argumenti(a)

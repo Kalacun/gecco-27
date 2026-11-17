@@ -29,6 +29,8 @@ for pot, korak in ((rigol, "W4_snemaj.py"), (esp, "W5_preberi.py")):
     if not os.path.isfile(pot):
         sys.exit(f"Ni {pot}. Najprej {korak}.")
 try:
+    zajem.kakovost_sledi(mapa)
+    print()
     if "#SAMO," in open(esp, encoding="utf-8", errors="replace").read():
         zajem.analiza_samopreizkusa(argparse.Namespace(rigol_csv=rigol, esp_txt=esp,
                                                        nastavitve=zajem.PRIVZETE_NASTAVITVE))

@@ -976,9 +976,15 @@ class LazniRigol:
     cc so v sekundah od vklopa izhoda (:OUTP CH1,ON)."""
 
     def __init__(self, visok=(5.0, 15.0), napaka_po_ukazu=None, najvec_tok=None,
-                 izpad=None, cc=None, cas_poizvedbe=0.1):
+                 izpad=None, cc=None, cas_poizvedbe=0.1, visoki=None, tok_spanje=0.0031,
+                 tok_racun=0.0502, tok_konec=None):
         self.t, self.t_vklopa = 0.0, None
         self.visok, self.izpad, self.cc = visok, izpad, cc
+        # visoki: seznam intervalov računanja (namesto enega 'visok');
+        # tok_konec: tok po zadnjem intervalu (globoko spanje), privzeto tok_spanje
+        self.visoki = visoki if visoki is not None else [visok]
+        self.tok_spanje, self.tok_racun = tok_spanje, tok_racun
+        self.tok_konec = tok_spanje if tok_konec is None else tok_konec
         self.napaka_po_ukazu, self.najvec_tok = napaka_po_ukazu, najvec_tok
         self.cas_poizvedbe = cas_poizvedbe
         self.dnevnik = []                    # (t, "write"/"query", ukaz)
@@ -1032,7 +1038,12 @@ class LazniRigol:
         if ukaz.startswith(":MEAS:ALL?"):
             if self.v(self.izpad):
                 raise TimeoutError("sinteticni izpad povezave")
-            i = 0.0502 if self.v(self.visok) else 0.0031
+            if any(self.v(iv) for iv in self.visoki):
+                i = self.tok_racun
+            elif self.t - self.t_vklopa >= max(iv[1] for iv in self.visoki):
+                i = self.tok_konec
+            else:
+                i = self.tok_spanje
             return f"3.3001,{i:.4f},{3.3001 * i:.3f}\n"
         if ukaz.startswith(":OUTP:MODE?"):
             return "CC" if self.v(self.cc) else "CV"
@@ -1062,7 +1073,7 @@ class TestSnemanje(Osnova):
     def args(self, **kw):
         a = dict(mapa=self.seja, ino="", kanal="CH1", nastavi=True, napetost=3.30,
                  tok_omejitev=0.5, premor_izklop=5.0, nacin_perioda=10.0, perioda=0.0,
-                 prag_visok_ma=20.0, cas_konec_s=20.0, cas_zacetka_s=30.0, najdlje_s=0.0,
+                 razlika_ma=10.0, cas_konec_s=20.0, cas_zacetka_s=30.0, najdlje_s=0.0,
                  pusti_vklopljeno=False, rigol="", visa_backend=None)
         a.update(kw)
         return argparse.Namespace(**a)
@@ -1187,6 +1198,68 @@ class TestSnemanje(Osnova):
         self.assertTrue(self.posnemi(LazniRigol(visok=(5.0, 15.0))))
         self.assertIn("ne računa več", self.json("meta_konec.json")["razlog_konca"])
         self.assertAlmostEqual(self.json("meta_konec.json")["trajanje_s"], 35.0, delta=1.0)
+
+    def test_konec_tudi_ce_plosca_v_spanju_porabi_vec_kot_20_mA(self):
+        """Napaka s 17. 11. 2026: ploščica je v spanju porabila več kot nekdanji
+        absolutni prag 20 mA, zato snemanje ni nikoli zaznalo konca."""
+        visoki = [(20.0 + 15.0 * k, 22.0 + 15.0 * k) for k in range(6)]   # okna po 2 s
+        r = LazniRigol(visoki=visoki, tok_spanje=0.0260, tok_racun=0.0700, tok_konec=0.0240)
+        self.assertTrue(self.posnemi(r, cas_konec_s=60.0, najdlje_s=3600.0))
+        konec = self.json("meta_konec.json")
+        self.assertIn("ne računa več", konec["razlog_konca"])
+        self.assertAlmostEqual(konec["trajanje_s"], visoki[-1][1] + 60.0, delta=6.0)
+        self.assertAlmostEqual(konec["tla_spanja_mA"], 24.0, delta=0.05)
+        self.assertEqual(konec["oken_zaznanih_med_snemanjem"], 6)
+
+    def test_premori_med_okni_niso_konec(self):
+        """Spanje med zagoni (11 s) ne sme ustaviti snemanja, tudi če je dolgo
+        skoraj kot cas_konec_s."""
+        visoki = [(20.0 + 30.0 * k, 21.0 + 30.0 * k) for k in range(5)]   # premori 29 s
+        r = LazniRigol(visoki=visoki)
+        self.assertTrue(self.posnemi(r, cas_konec_s=30.0))
+        self.assertEqual(self.json("meta_konec.json")["oken_zaznanih_med_snemanjem"], 5)
+        self.assertGreater(self.json("meta_konec.json")["trajanje_s"], visoki[-1][1] + 29.0)
+
+    def test_vrzel_v_povezavi_ni_konec(self):
+        """Izpad povezave (ni vzorcev) med sejo ne sme izgledati kot spanje."""
+        visoki = [(10.0, 12.0), (60.0, 62.0)]
+        r = LazniRigol(visoki=visoki, izpad=(13.0, 50.0))
+        self.assertTrue(self.posnemi(r, cas_konec_s=20.0))
+        self.assertEqual(self.json("meta_konec.json")["oken_zaznanih_med_snemanjem"], 2)
+        self.assertGreater(self.json("meta_konec.json")["trajanje_s"], 80.0)
+
+    def test_pravila_konca_v_meta(self):
+        self.posnemi(LazniRigol())
+        pr = self.json("meta.json")["pravila_konca"]
+        self.assertEqual(pr["razlika_mA"], 10.0)
+        self.assertNotIn("prag_visok_mA", pr)
+
+    def test_nedokoncana_zadnja_vrstica_se_izpusti(self):
+        self.posnemi(LazniRigol())
+        pot = os.path.join(self.seja, "rigol.csv")
+        n = len(beri_csv(pot))
+        with open(pot, "a", encoding="utf-8") as f:
+            f.write("99.1,99.2,3.30")                         # prekinjeno med pisanjem
+        with redirect_stdout(io.StringIO()) as izpis:
+            t, _ = zajem.preberi_rigol(pot)
+        self.assertEqual(len(t), n)
+        self.assertIn("nedokončana", izpis.getvalue())
+        with open(pot, "a", encoding="utf-8") as f:
+            f.write("\n1,2,3,4,5\n")                          # pokvarjena vrstica NI zadnja
+        with self.assertRaises(zajem.NapakaAnalize):
+            zajem.preberi_rigol(pot)
+
+    def test_kakovost_sledi(self):
+        self.posnemi(LazniRigol(izpad=(8.0, 11.0), cc=(9.0, 31.0)))
+        with redirect_stdout(io.StringIO()):
+            v = zajem.kakovost_sledi(self.seja)
+        self.assertEqual(v["vrzeli_nad_1s"], 1)
+        self.assertGreater(v["najdaljsa_vrzel_s"], 3.0)
+        self.assertGreaterEqual(v["ne_CV"], 1)
+        self.assertIn("ne računa več", v["razlog_konca"])
+        os.remove(os.path.join(self.seja, "meta_konec.json"))
+        with redirect_stdout(io.StringIO()):
+            self.assertIn("od zunaj", zajem.kakovost_sledi(self.seja)["razlog_konca"])
 
     def test_esp32_ki_ne_zacne_ustavi_snemanje_z_neuspehom(self):
         self.assertFalse(self.posnemi(LazniRigol(visok=(1e9, 1e9))))

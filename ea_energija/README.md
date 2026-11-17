@@ -241,12 +241,13 @@ USPEH,jDE,10,10,100.0%
 |---|---|---|
 | `--kanal` | `CH1` | kanal napajalnika. Pri enokanalnih modelih (npr. DP711) `--kanal ""` |
 | `--perioda` | 0,05 s | premor med poizvedbami. Dejanska frekvenca je ~5–10 Hz zaradi trajanja poizvedbe |
-| `--prag-visok-ma` | 20 mA | nad tem tokom velja, da ESP32 računa |
-| `--prag-konec-ma` | 1 mA | pod tem tokom velja, da je ESP32 v deep sleepu |
-| `--cas-konec-s` | 60 s | koliko časa mora biti tok pod pragom za samodejno ustavitev |
+| `--razlika-ma` | 10 mA | toliko nad tokom ploščice v spanju (najnižja drseča mediana 5 vzorcev) velja, da ESP32 računa |
+| `--cas-konec-s` | 60 s | toliko časa noben vzorec ne sme računati, da se snemanje ustavi |
+| `--najdlje-s` | 0 (brez) | varovalka: najdaljši čas snemanja |
 | `--visa-backend` | `@py` | `""` za NI-VISA / UltraSigma |
 
-Če LED in USB čip na vaši ploščici tudi v deep sleepu porabita več kot 1 mA, se snemanje ne ustavi samo. Takrat ga ustavite s Ctrl+C ali povečajte `--prag-konec-ma`. Na analizo to ne vpliva.
+Konec se prepozna relativno na tok ploščice v spanju, zato ni odvisen od tega, koliko porabijo LED,
+pretvornik USB-UART in regulator na ploščici. Na analizo pravilo konca ne vpliva.
 
 ### 10.2 Metoda analize
 

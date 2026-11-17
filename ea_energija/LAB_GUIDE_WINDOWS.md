@@ -7,10 +7,13 @@ Program za ESP32 prevede in naloži skripta `W2` (prek `arduino-cli`, ki je del 
 Enakovredni navodili za druge postavitve: `LAB_GUIDE_IDE.md` (Arduino IDE na Macu, PyCharm na PC-ju)
 in `LAB_GUIDE_CLI.md` (ukazna vrstica). Vse tri uporabljajo isti program, iste zapise in iste preverbe.
 
-**Stanje kode.** Vse je preizkušeno na računalniku (131 testov, poskusni zagoni skript na sintetičnih
-podatkih, prevod programa brez opozoril). **Na Windows, z ESP32 in z RIGOL-om še ni bilo nič pognano.**
-Samopreizkus (C) in preizkus verige (D) sta zato tudi prvi preizkus skript na pravi opremi. Ko kaj ne
-dela, mi pošljite celoten izpis iz PyCharma. Kampanje (F) ne začnite, dokler C in D nista v redu.
+**Stanje kode (17. 11. 2026).** Nalaganje (`W2`) in preverjanje (`W3`) delujeta na tem PC-ju. Samopreizkus
+in preizkus verige sta bila posneta, a `W4` se ni ustavil sam: konec seje je prepoznaval po fiksnem pragu
+toka 20 mA, ploščica pa v spanju verjetno porabi več (pretvornik USB-UART, LED in regulator so napajani s
+3V3). Zdaj `W4` konec prepozna 60 s po tem, ko tok pade na raven spanja ploščice, ne glede na to, kolikšna
+je (testi na računalniku, tudi s tokom spanja 26 mA; na pravi opremi še ne). **Če nadaljujete po tem
+datumu, začnite z razdelkom »Pot do kampanje« spodaj.** Ko kaj ne dela, mi pošljite celoten izpis iz
+PyCharma.
 
 ---
 
@@ -27,6 +30,78 @@ dela, mi pošljite celoten izpis iz PyCharma. Kampanje (F) ne začnite, dokler C
    analiza njegove seje zavrne.
 5. **Vsaka seja ima svojo mapo** `meritve/<seja>`; nič surovega se nikoli ne prepiše. Mape `meritve/` in
    `arhiv/` redno kopirajte na varno mesto (v git ne gredo).
+
+---
+
+## Pot do kampanje (od 17. 11. 2026 naprej)
+
+Na ESP32 so verjetno še vedno zapisi preizkusa verige. Prebrati jih morate **pred** naslednjim `W2`:
+vsak nov program jih pobriše. Iz njih `W7` določi T za kampanjo.
+
+**K1. Nova koda na PC.** PyCharm: *Git → Pull* (ali v zavihku *Terminal* `git pull`). Spremenjene so samo
+skripte na PC-ju (`zajem.py`, `seja.py`, `W4_snemaj.py`, `W6_analiza.py`); program za ESP32 je enak.
+`seja_nastavitve.py` pustite, kot je (`VRSTA = "veriga"`). **`W2` zdaj NE poganjajte.**
+
+**K2. Napajanje.** Če ste `W4` ustavili z rdečim kvadratom, je izhod RIGOL-a morda še vklopljen: na RIGOL-u
+izklopite izhod CH1 (tipka *On/Off* nad kanalom). **Odprite stikalo.**
+
+**K3. Branje preizkusa verige.** USB kabel ESP32 priklopite **brez** BOOT. Poženite **`W5_preberi.py`**
+(1–2 min). Prva vrstica povzetka odloči, kako naprej:
+
+| Izpis | Pomen | Naprej |
+|---|---|---|
+| `stanje = koncan, zapisov 45 od načrtovanih 45, …, pokvarjenih zapisov (crc) = 0` | Preizkus je uspel; samo snemanje se ni ustavilo. | K4 |
+| `SEJA NI KONČANA … razlog … vklop napajanja` | Izhod RIGOL-a je bil izklopljen pred koncem seje. | Preizkus verige ponovite (razdelek D, z `W2`); `W4` se zdaj ustavi sam. Nato K4. |
+| `SEJA NI KONČANA` z drugim razlogom (panic, nadzornik, brownout) | ESP32 se je med sejo ponovno zagnal. | Kampanje ne začnite. Pošljite mi celoten izpis. |
+| `FileExistsError … esp32.txt` | Zapise ste že prebrali. | K4 |
+
+**K4. Analiza preizkusa verige.** Poženite **`W6_analiza.py`** (pod minuto). Najprej izpiše
+`Posnetek RIGOL-a:` (vzorčenje, najdaljša vrzel, napetost, način CV). Nato analizo:
+
+* Konča brez napake: preverite sprejemne pogoje v D.
+* `NAPAKA ANALIZE: V sledi moči je N merilnih oken, zapisov REZ pa je 45` ali `znotraj robov … je samo N
+  vzorcev`: najverjetneje so zagoni pri D = 10 kratki (okoli 1–2 s) za privzete pragove analize. To je
+  nastavitev analize, ne napaka posnetka: surovi podatki ostanejo in analizo lahko ponovimo z drugimi
+  pragovi. **Kampanje to ne ustavi.** Izpis, `okna.csv` iz nove mape `analiza_…` in `meta_konec.json` mi
+  pošljite; pragove nastaviva, preden pogledava rezultate kampanje.
+* `vrzel_v_oknu`, `ni_CV_v_oknu`, ali v vrstici `Posnetek RIGOL-a` »ne CV« več kot 0, vrzeli nad 1 s ali
+  napetost zunaj 3,25–3,35 V: težava meritve. **Kampanje ne začnite**; pošljite mi izpis.
+
+**K5. T za kampanjo.** Poženite **`W7_nastavi_T.py`**. Izpiše mediano trajanja zagonov FE za štiri celice in
+predlagani T. Če izpiše `OPOZORILO: celice … krajše od 3 s`, je to pričakovano (glej spodaj). Na vrhu
+datoteke nastavite `ZAPISI = True`, Ctrl+S, poženite znova, nato vrnite `ZAPISI = False`. Nastane `ea_T.h`.
+
+> **Odločitev o kratkih zagonih (vaša).** Pri FE_max = 10000 × D (vaša odločitev 16. 11.) bodo zagoni pri
+> D = 10 verjetno trajali 1–2 s. Za E2 to zadošča, če RIGOL vzorči vsaj ~5 Hz (`fs` v vrstici
+> `Posnetek RIGOL-a`): E2 je povprečna moč notranjih vzorcev × trajanje, ki ga izmeri ESP32; rob okna
+> (`rob_E2_s`, zdaj 0,5 s) bi zmanjšala na eno do dve periodi vzorčenja. To je nastavitev analize, ki jo
+> določiva iz preizkusa verige, preden pogledava rezultate kampanje. Če želite daljša okna, je treba FE_max spremeniti v
+> `ea_energija.ino` **pred** K6 in preizkus verige ponoviti; to spremeni zasnovo poskusa. Moje priporočilo:
+> FE_max ostane, kot je.
+
+**K6. Shranite T v git.** PyCharm: *Git → Commit*, označite `ea_T.h`, sporočilo *T za kampanjo iz
+preizkusa verige* → **Commit** (push ni potreben).
+
+**K7. Kampanja.** V `seja_nastavitve.py` nastavite `VRSTA = "kampanja"` in `RED = 0`, Ctrl+S. Nato:
+
+1. Stikalo odprto. ESP32 **z BOOT** (postopek spodaj), **`W2_pripravi_in_nalozi.py`**. Ne sme izpisati
+   `+spremembe` (če ga, K6 ni bil narejen).
+2. USB izklop, **z BOOT** priklop, **`W3_preveri_nalaganje.py`** do `VSE V REDU`. **Izklopite USB kabel
+   ESP32.**
+3. **Zaprite stikalo.** Poženite **`W4_snemaj.py`**. Izpiše `Načrt: 624 merilnih oken, približno X h`.
+   Prve 3 minute opazujte vrstico napredka: `I` med spanjem je približno enak `spanje … mA`, med računanjem nekaj
+   deset mA višje, `oken ~N/624` se poveča vsakih 12–20 s. Nato pustite računalnik pri miru.
+4. `W4` se ustavi sam, približno minuto po koncu seje, z `konec poskusa (ESP32 ne računa več)`, in izklopi
+   izhod. Če se v vrstici napredka pojavi `POZOR: ESP32 že N min ne spi`, se je ESP32 verjetno ponovno
+   zagnal: ustavite `W4`, izklopite izhod na RIGOL-u in mi pošljite izpis.
+5. **Odprite stikalo**, USB **brez** BOOT, **`W5_preberi.py`**. Pričakovano: `stanje = koncan, zapisov
+   624 od načrtovanih 624, resetov = 1`.
+6. Takoj kopirajte mapo `meritve\<datum>_kampanja` na ključek in v oblak.
+7. **`W6_analiza.py`**. Če se ustavi zaradi pragov (kot v K4), so podatki varni; pošljite mi izpis.
+
+**K8. Samopreizkus po kampanji.** Ko je kampanja prebrana in shranjena: razdelek C (okoli 15 min skupaj).
+Samopreizkus ne vpliva na kampanjo, preveri pa merilno verigo za članek. Prejšnji posnetek samopreizkusa
+nima zapisov ESP32 (pobrisal jih je `W2` za preizkus verige), zato ga ponovite.
 
 ---
 
@@ -186,8 +261,10 @@ Nato **izklopite USB kabel ESP32**.
 
 **C4. Snemanje.** USB kabel ESP32 izklopljen, **zaprite stikalo**, poženite **`W4_snemaj.py`**. Izpiše
 nastavitve, prebrane z RIGOL-a, vklopi izhod (ESP32 se zažene), snema in se sam ustavi približno minuto po
-tem, ko ESP32 konča in zaspi; nato izklopi izhod. Na koncu izpiše doseženo frekvenco vzorčenja in tresenje.
-Med snemanjem se ničesar ne dotikajte.
+tem, ko ESP32 konča in zaspi; nato izklopi izhod. Konec prepozna relativno: 60 s noben vzorec toka ni več
+kot 10 mA nad tokom ploščice v spanju (`spanje … mA` v vrstici napredka). Na koncu izpiše doseženo
+frekvenco vzorčenja, tresenje in tok v spanju. Samopreizkus traja okoli 4 min. Med snemanjem se ničesar ne
+dotikajte.
 
 **C5. Branje zapisov.** **Odprite stikalo.** USB kabel ESP32 priklopite **brez** BOOT. Poženite
 **`W5_preberi.py`**. Shrani `meritve/<seja>/esp32.txt` in izpiše preverjanje nastavitev plošče.
@@ -210,7 +287,7 @@ Med snemanjem se ničesar ne dotikajte.
 
 ---
 
-## D. Preizkus verige (20–40 minut snemanja)
+## D. Preizkus verige (ocena 10–20 minut snemanja; W4 se ustavi sam)
 
 Namen: celoten protokol na vseh štirih celicah s proračunom kampanje, po dva bloka, in ena kratka vrstica v
 načinu CAS. Preveri program od začetka do konca in da trajanja, iz katerih se določi T.
@@ -304,7 +381,8 @@ Odločite zdaj; izbira je zapisana v vsakem izpisu.
 
 Načrt: Rastrigin in Rosenbrock, D = 10 in 20, proračun FE in CAS = 8 vrstic; 3 algoritmi; 25 blokov + 1
 ogrevalni → 624 zagonov. Trajanje ≈ 624 × 11,3 s (počitek in pisanje, okoli 2 uri) plus vsota vseh oken
-(iz T v `ea_T.h`). Prostor v flashu program preveri pred začetkom.
+(iz T v `ea_T.h`); `W4` ob začetku izpiše oceno. Prostor v flashu program preveri pred začetkom. Kratka
+pot z vsemi koraki je v razdelku »Pot do kampanje« (K7).
 
 `seja_nastavitve.py`:
 
@@ -381,6 +459,8 @@ Za vsako analizo nova mapa `analiza_<datum>_<ura>/`: `porocilo.txt`, kopija `ana
 | `W4`: `Seja … je že posneta` | Za novo sejo `W2` (po potrebi prej `W8`). |
 | `W3`: `seja se je že začela` | Glejte C3. |
 | Snemanje se ustavi sredi kampanje | Spanje ali USB izklop v Windows (0.2). |
+| `W4` se ne ustavi, čeprav je ESP32 končal | Vrstica napredka: če `I` ni več kot 10 mA nad `spanje … mA`, se ustavi v 60 s. Če je stalno višji, ESP32 ne spi (ponovni zagon?): ustavite, izhod izklopite na RIGOL-u, `W5`, izpis meni. |
+| `W4` ustavljen z rdečim kvadratom | Izhod RIGOL-a izklopite ročno (CH1 *On/Off*). Posnetek je uporaben; `W6` izpusti morebitno nedokončano zadnjo vrstico. |
 
 ---
 

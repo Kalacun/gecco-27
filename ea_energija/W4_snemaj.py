@@ -34,7 +34,18 @@ if naprava.esp32_priklopljen(n.PORT_ESP32) and not DOVOLI_PRIKLOPLJEN_USB:
     sys.exit("USB kabel ESP32 je PRIKLOPLJEN. Med meritvijo ga izklopite (ploščico bi sicer napajala "
              "oba vira). Snemanje se ni začelo.")
 print(f"Seja {s['seja']} ({s['vrsta']}), program {s['oznaka_prevoda']}")
+oken, trajanje = seja.pricakovano(s["vrsta"], s["red"])
+if oken:
+    print(f"Načrt: {oken} merilnih oken" + (f", približno {trajanje / 3600:.1f} h" if trajanje
+                                             else ""))
+elif trajanje:
+    print(f"Načrt: približno {trajanje / 60:.0f} min")
+print("Snemanje se ustavi SAMO, 60 s po tem, ko ESP32 konča in zaspi; nato izklopi izhod.\n"
+      "Vrstica spodaj kaže čas, tok, tok v spanju in sproti prešteta okna (~, samo za\n"
+      "orientacijo). Če morate snemanje ustaviti z rdečim kvadratom, na RIGOL-u izklopite\n"
+      "izhod CH1 (tipka On/Off), če ga skripta ni.\n")
 sys.argv = ["zajem.py", "poskus", "--mapa", mapa, "--najdlje-s", str(seja.NAJDLJE_S[s["vrsta"]])]
 if n.RIGOL:
     sys.argv += ["--rigol", n.RIGOL]
+sys.argv += ["--pricakovano-oken", str(oken), "--pricakovano-s", str(trajanje or 0)]
 zajem.main()

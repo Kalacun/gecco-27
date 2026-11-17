@@ -116,3 +116,13 @@ Rastrigin recorded and flagged but not tested.
 firmware: unshifted functions, a 1e-6 target below evaluation accuracy, a capped L-SHADE
 population at D = 50, and a session that was restarted six times. They are an archive, not
 results. `stari_zapisi.py` recovers what is on the board (LAB_GUIDE step A).
+
+## Lab follow-up (2026-11-17)
+
+The first self-test and chain-test recordings did not stop on their own. The recorder ended a
+session after 60 s with no current sample above a fixed 20 mA; the board (USB-UART bridge, LED
+and regulator fed from 3V3) most likely draws more than that while asleep (unverified: the trace
+was not available to me). The end rule is now relative to the board's own sleep current (lowest
+5-sample running median + 10 mA), refuses to end across connection gaps, and is covered by
+synthetic tests including a 26 mA sleep floor. The trace reader skips an unfinished last line
+left by a killed recorder and says so. Firmware unchanged.
