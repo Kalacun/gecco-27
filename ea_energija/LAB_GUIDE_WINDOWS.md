@@ -7,13 +7,21 @@ Program za ESP32 prevede in naloži skripta `W2` (prek `arduino-cli`, ki je del 
 Enakovredni navodili za druge postavitve: `LAB_GUIDE_IDE.md` (Arduino IDE na Macu, PyCharm na PC-ju)
 in `LAB_GUIDE_CLI.md` (ukazna vrstica). Vse tri uporabljajo isti program, iste zapise in iste preverbe.
 
-**Stanje kode (17. 11. 2026).** Nalaganje (`W2`) in preverjanje (`W3`) delujeta na tem PC-ju. Samopreizkus
-in preizkus verige sta bila posneta, a `W4` se ni ustavil sam: konec seje je prepoznaval po fiksnem pragu
-toka 20 mA, ploščica pa v spanju verjetno porabi več (pretvornik USB-UART, LED in regulator so napajani s
-3V3). Zdaj `W4` konec prepozna 60 s po tem, ko tok pade na raven spanja ploščice, ne glede na to, kolikšna
-je (testi na računalniku, tudi s tokom spanja 26 mA; na pravi opremi še ne). **Če nadaljujete po tem
-datumu, začnite z razdelkom »Pot do kampanje« spodaj.** Ko kaj ne dela, mi pošljite celoten izpis iz
-PyCharma.
+**Stanje kode (17. 11. 2026, zvečer).** Nalaganje (`W2`), preverjanje (`W3`), preizkus verige in kampanja
+so bili izvedeni na tem PC-ju. Iz kampanje sta se pokazali dve napaki, obe popravljeni:
+
+1. **ESP32 po koncu seje ni ostal v globokem spanju.** Časovnik, nastavljen za lahko spanje, je ostal vir
+   bujenja, zato se je ESP32 po 1 s zbudil, znova zagnal in buden (~49 mA) izpisoval zapise. Zato se `W4`
+   nikoli ni ustavil sam (ne zaradi praga, kot sem najprej sklepal: tok spanja je le 9,3 mA). Zapisi in
+   meritve niso prizadeti: vse se zgodi po zadnjem zapisu. Popravek je v `ea_energija.ino`
+   (`globoko_spanje()`), velja za nove prevode (samopreizkus in naprej).
+2. **Ura vzorcev je imela ločljivost 15,6 ms** (Python 3.10 na Windows), RIGOL pa je odgovarjal s
+   ~265 Hz, zato ima več zaporednih vzorcev enak čas. Analiza take skupine povpreči v en vzorec in to
+   izpiše; novo snemanje uporablja uro z ločljivostjo pod mikrosekundo.
+
+Analiza tudi zadnji interval visoke moči v končani seji (izpis po koncu seje) označi kot `po_koncu_seje`
+namesto da bi se ustavila, in je hitra tudi pri več milijonih vzorcev. Ko kaj ne dela, mi pošljite celoten
+izpis iz PyCharma.
 
 ---
 
@@ -30,6 +38,28 @@ PyCharma.
    analiza njegove seje zavrne.
 5. **Vsaka seja ima svojo mapo** `meritve/<seja>`; nič surovega se nikoli ne prepiše. Mape `meritve/` in
    `arhiv/` redno kopirajte na varno mesto (v git ne gredo).
+
+---
+
+## Kampanja 17. 11. 2026 je posneta: kaj zdaj
+
+1. `W4` ustavite z rdečim kvadratom (vsa okna so končana, ESP32 le izpisuje zapise). Na RIGOL-u izklopite
+   izhod CH1 (tipka *On/Off*), če ni izklopljen. **Odprite stikalo.**
+2. USB kabel ESP32 **brez** BOOT, **`W5_preberi.py`**. Pričakovano: `stanje = koncan, zapisov 624 od
+   načrtovanih 624, resetov = 1`, pokvarjenih 0.
+3. **Takoj** kopirajte mapo `meritve\2026-11-17_kampanja` na ključek in v oblak (`rigol.csv` ima več kot
+   100 MB).
+4. Posodobite kodo (GitHub → *Git → Pull* v PyCharmu). Šele nato **`W6_analiza.py`** (stara analiza bi se
+   pri izpisu po koncu seje ustavila, pri 2,5 milijona vzorcih pa bi tekla ure). Pričakujte dve vrstici
+   `OPOMBA` (enaki časi, izpis po koncu seje). Izpis mi pošljite. Stara koda konča z
+   `Časi vzorcev v sledi niso strogo naraščajoči`.
+
+   V `analiza_nastavitve.json` sta spremenjena dva praga (zapisano v `spremembe` v datoteki):
+   `min_trajanje_okna_s` 1,5 → 0,3 s in `rob_E2_s` 0,5 → 0,2 s, ker zagoni Rosenbrock D = 10 (FE)
+   trajajo okoli 0,8 s. Zagon ESP32 in začetek seje (prvih 15 s posnetka) analiza označi kot
+   `zagon_esp32`, ne glede na trajanje; pisanje v flash po vsakem oknu ostane `kratek_interval`.
+5. Samopreizkus (razdelek C) z novim programom: `VRSTA = "samopreizkus"`, `W2` → `W3` → `W4` (zdaj se
+   ustavi sam, okoli 5 min) → `W5` → `W6`. `W2` ne sme izpisati `+spremembe`.
 
 ---
 

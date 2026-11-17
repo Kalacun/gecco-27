@@ -220,6 +220,15 @@ uint8_t napake_spanja;     // števec od zadnjega zapisa
 
 uint32_t crc32(const void *p, size_t n) { return esp_rom_crc32_le(0, (const uint8_t *)p, n); }
 
+// Globoko spanje BREZ bujenja. Časovnik, ki ga je za lahko spanje nastavil
+// esp_sleep_enable_timer_wakeup(), ostane vir bujenja tudi za globoko spanje;
+// brez tega klica se ESP32 po 1 s zbudi, znova zažene in ostane buden v
+// izpisu zapisov (opaženo v laboratoriju 17. 11. 2026: tok ~49 mA po koncu).
+void globoko_spanje() {
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+  esp_deep_sleep_start();
+}
+
 // Seja se ustavi z napako: stanje in vrsta napake v NVS, nato deep sleep.
 // Že zapisani zapisi ostanejo in se ob vklopu prek USB izpišejo.
 void ustavi_z_napako(uint8_t vrsta, int poskus) {
@@ -227,7 +236,7 @@ void ustavi_z_napako(uint8_t vrsta, int poskus) {
   flash.putUChar("napaka_v", vrsta);
   flash.putUChar("napaka_e", (uint8_t)poskus);
   flash.end();
-  esp_deep_sleep_start();
+  globoko_spanje();
 }
 
 // ======================= VRSTNI RED ZAGONOV =========================
@@ -358,7 +367,7 @@ void izvedi_poskus() {
   }
   flash.putUChar("stanje", STANJE_KONCAN);
   flash.end();
-  esp_deep_sleep_start();              // konec: tok pade skoraj na nič
+  globoko_spanje();              // konec: tok pade skoraj na nič
 }
 
 // ======================= SAMOPREIZKUS (NACRT 2) =====================
@@ -481,7 +490,7 @@ void samopreizkus() {
   }
   flash.putUChar("stanje", STANJE_KONCAN);
   flash.end();
-  esp_deep_sleep_start();
+  globoko_spanje();
 }
 
 // ======================= BRANJE IN IZPIS REZULTATOV =================
@@ -625,7 +634,7 @@ void izpisuj_rezultate() {
       flash.putUChar("napaka_v", 0);
       flash.putUChar("razlog_p", 0);
       flash.end();
-      esp_deep_sleep_start();
+      globoko_spanje();
     }
     caka_potrditev = false;
   }
@@ -662,7 +671,7 @@ void setup() {
                   "vklopu napajanja (RIGOL) ali s tipko EN.\n", OZNAKA_PREVODA);
     Serial.flush();
     flash.end();
-    esp_deep_sleep_start();            // brez bujenja: čaka na izklop/vklop ali EN
+    globoko_spanje();            // brez bujenja: čaka na izklop/vklop ali EN
   }
 
   uint8_t stanje = flash.getUChar("stanje", 0);

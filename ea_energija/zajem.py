@@ -21,6 +21,7 @@ Ukazi:
 Podrobna navodila so v README.md.
 """
 import argparse
+import bisect
 import csv
 import json
 import math
@@ -248,7 +249,13 @@ def snemaj(args):
         inst.close()
 
 
-def snemaj_z_instrumentom(inst, naslov, args, ura=time.monotonic, pocakaj=time.sleep):
+# Ura za čase vzorcev: perf_counter je monotona in ima tudi na Windows ločljivost
+# pod mikrosekundo; time.monotonic ima tam pred Pythonom 3.13 ločljivost 15,6 ms
+# (opaženo 17. 11. 2026: več vzorcev z enakim časom).
+URA_SNEMANJA = time.perf_counter
+
+
+def snemaj_z_instrumentom(inst, naslov, args, ura=URA_SNEMANJA, pocakaj=time.sleep):
     """Samodejno: nastavi napajalnik in prebere nastavitve nazaj, vklopi
     izhod (ESP32 se zažene in začne poskus), snema, prepozna konec poskusa
     in izhod izklopi. Človek med poskusom ne posega.
@@ -306,6 +313,9 @@ def snemaj_z_instrumentom(inst, naslov, args, ura=time.monotonic, pocakaj=time.s
             "ukaz_meritve": ukaz, "ukaz_nacina": ukaz_nacin,
             "nacin_perioda_s": args.nacin_perioda, "perioda_s": args.perioda,
             "zajem_py_sha256": zgostitev, "python": sys.version.split()[0],
+            "ura": ({"funkcija": ura.__name__,
+                     "locljivost_s": time.get_clock_info(ura.__name__).resolution}
+                    if ura is URA_SNEMANJA else {"funkcija": "testna"}),
             "platforma": sys.platform,
             "pravila_konca": {"cas_konec_s": args.cas_konec_s, "cas_zacetka_s": args.cas_zacetka_s,
                               "najdlje_s": args.najdlje_s, "razlika_mA": args.razlika_ma,
@@ -393,7 +403,7 @@ def snemaj_z_instrumentom(inst, naslov, args, ura=time.monotonic, pocakaj=time.s
                     zac = zadnji_dober if zadnji_dober is not None else 0.0
                     dogodek(zac, "vrzel", ta - zac, "brez veljavnega vzorca")
                     v_vrzeli = False
-                w.writerow([f"{ta:.4f}", f"{tb:.4f}"] + [d.strip() for d in deli])
+                w.writerow([f"{ta:.6f}", f"{tb:.6f}"] + [d.strip() for d in deli])
                 zadnji_dober = tb
                 t = 0.5 * (ta + tb)
                 casi.append(t)
@@ -597,10 +607,18 @@ def preberi_rigol(pot):
     return sled["t"], sled["p"]
 
 
-def preberi_sled(pot):
+def preberi_sled(pot, zdruzi=True):
     """Prebere rigol.csv in, če obstaja ob njem, rigol_nacin.csv.
-    Vrne slovar: t (sredina poizvedbe), p (W), u (V), nacini [(t, niz)]
-    ali None, če datoteke z načinom ni."""
+    Vrne slovar: t (sredina poizvedbe), p (W), u (V), u_min, u_max,
+    nacini [(t, niz)] ali None, če datoteke z načinom ni, in zdruzenih.
+
+    Zaporedni vzorci z ENAKIM časom (zdruzi=True) se združijo v en vzorec:
+    p in u sta povprečji skupine, u_min in u_max skrajni napetosti skupine
+    (pravilo CV zato vidi vsak vzorec). Enaki časi nastanejo, ko je ura
+    računalnika grobejša od periode poizvedb (Python < 3.13 na Windows:
+    time.monotonic ima ločljivost 15,6 ms). Pravega časa vzorcev znotraj
+    enega tika ne poznamo, zato ga ne izmišljujemo; število združenih
+    vzorcev se izpiše."""
     t, p, u = [], [], []
     with open(pot, newline="", encoding="utf-8") as f:
         bralnik = csv.DictReader(f)
@@ -627,6 +645,25 @@ def preberi_sled(pot):
         t.append(tk)
         p.append(pk)
         u.append(uk)
+    u_min, u_max, zdruzenih = list(u), list(u), 0
+    if zdruzi and any(b == a for a, b in zip(t, t[1:])):
+        t2, p2, u2, umin2, umax2 = [], [], [], [], []
+        k = 0
+        while k < len(t):
+            j = k + 1
+            while j < len(t) and t[j] == t[k]:
+                j += 1
+            n = j - k
+            t2.append(t[k])
+            p2.append(sum(p[k:j]) / n)
+            u2.append(sum(u[k:j]) / n)
+            umin2.append(min(u[k:j]))
+            umax2.append(max(u[k:j]))
+            zdruzenih += n - 1
+            k = j
+        print(f"OPOMBA: {zdruzenih} od {len(t)} vzorcev ima enak čas kot prejšnji (ločljivost ure "
+              f"računalnika); skupine z enakim časom so povprečene v {len(t2)} vzorcev.")
+        t, p, u, u_min, u_max = t2, p2, u2, umin2, umax2
     nacini = None
     pot_nacin = os.path.join(os.path.dirname(os.path.abspath(pot)), "rigol_nacin.csv")
     if os.path.exists(pot_nacin):
@@ -642,21 +679,27 @@ def preberi_sled(pot):
                     print(f"OPOMBA: zadnja vrstica {pot_nacin} je nedokončana in ni upoštevana.")
                     break
                 raise NapakaAnalize(f"{pot_nacin}: vrstica {k + 2} ni berljiva: {dict(vr)}")
-    return {"t": t, "p": p, "u": u, "nacini": nacini}
+    return {"t": t, "p": p, "u": u, "u_min": u_min, "u_max": u_max, "nacini": nacini,
+            "zdruzenih": zdruzenih}
 
 
 def kakovost_sledi(mapa):
     """Kratek povzetek kakovosti posnetka v mapi seje (brez zapisov ESP32):
     vzorčenje, najdaljša vrzel, napetost, način CV in dogodki. Vrne slovar
     in ga izpiše. Uporabno tudi, ko se analiza ustavi."""
-    sled = preberi_sled(os.path.join(mapa, "rigol.csv"))
-    t, u = sled["t"], sled["u"]
+    sled = preberi_sled(os.path.join(mapa, "rigol.csv"), zdruzi=False)
+    t, u, p = sled["t"], sled["u"], sled["p"]
     v = {"vzorcev": len(t)}
     if len(t) > 1:
         razmiki = sorted(b - a for a, b in zip(t, t[1:]))
+        pozitivni = [r for r in razmiki if r > 0]
+        spremembe = sum(1 for a, b in zip(p, p[1:]) if a != b)
         v.update(trajanje_s=t[-1] - t[0], fs_Hz=(len(t) - 1) / (t[-1] - t[0]),
                  perioda_med_s=razmiki[len(razmiki) // 2], najdaljsa_vrzel_s=razmiki[-1],
-                 U_min_V=min(u), U_max_V=max(u))
+                 U_min_V=min(u), U_max_V=max(u),
+                 enak_cas_kot_prejsnji=len(razmiki) - len(pozitivni),
+                 najmanjsi_pozitivni_razmik_s=pozitivni[0] if pozitivni else None,
+                 spremembe_P_na_s=spremembe / (t[-1] - t[0]))
     if sled["nacini"] is not None:
         v["odcitkov_nacina"] = len(sled["nacini"])
         v["ne_CV"] = sum(1 for _, nac in sled["nacini"] if nac.upper() != "CV")
@@ -678,6 +721,12 @@ def kakovost_sledi(mapa):
         print(f"  {v['vzorcev']} vzorcev v {v['trajanje_s'] / 60:.1f} min, {v['fs_Hz']:.2f} Hz "
               f"(perioda mediana {v['perioda_med_s'] * 1000:.0f} ms), najdaljša vrzel "
               f"{v['najdaljsa_vrzel_s']:.2f} s, napetost {v['U_min_V']:.3f}-{v['U_max_V']:.3f} V")
+        print(f"  vzorcev z enakim časom kot prejšnji: {v['enak_cas_kot_prejsnji']}; najmanjši "
+              "pozitivni razmik (ločljivost ure) "
+              + ("-" if v["najmanjsi_pozitivni_razmik_s"] is None
+                 else f"{v['najmanjsi_pozitivni_razmik_s'] * 1000:.2f} ms")
+              + f"; nova vrednost moči {v['spremembe_P_na_s']:.1f}-krat na s (koliko pogosto "
+              "instrument osveži meritev)")
     if "ne_CV" in v:
         print(f"  način: {v['odcitkov_nacina']} odčitkov, od tega ne CV: {v['ne_CV']}")
     if "napak_poizvedb" in v:
@@ -697,11 +746,16 @@ def napake_sledi_v_oknu(sled, t0, t1, n):
                     U_toleranca_V (napajalnik je bil v tokovni omejitvi).
     Pravila ne uporabljajo izida optimizacije."""
     razlogi = []
-    t, u = sled["t"], sled["u"]
-    if any(tb - ta > n["max_vrzel_s"] and tb > t0 and ta < t1 for ta, tb in zip(t, t[1:])):
+    t = sled["t"]
+    u_min, u_max = sled.get("u_min", sled["u"]), sled.get("u_max", sled["u"])
+    # pari (t[k], t[k+1]) s t[k+1] > t0 in t[k] < t1
+    k0 = max(bisect.bisect_right(t, t0) - 1, 0)
+    k1 = min(bisect.bisect_left(t, t1), len(t) - 1)
+    if any(t[k + 1] - t[k] > n["max_vrzel_s"] for k in range(k0, k1)):
         razlogi.append("vrzel_v_oknu")
+    i0, i1 = bisect.bisect_left(t, t0), bisect.bisect_right(t, t1)
     ni_cv = any(abs(ui - n["U_nazivna_V"]) > n["U_toleranca_V"]
-                for ti, ui in zip(t, u) if t0 <= ti <= t1)
+                for ui in u_min[i0:i1] + u_max[i0:i1])
     if sled["nacini"] is not None:
         pred = [x for x in sled["nacini"] if x[0] < t0][-1:]
         v_oknu = [x for x in sled["nacini"] if t0 <= x[0] <= t1]
@@ -940,6 +994,14 @@ def ravni_moci(p, n):
     return nizka, nad[len(nad) // 2]
 
 
+# Program po vklopu najprej ZACETNO_SPANJE_S (10 s) spi, nato začne sejo (NVS,
+# priklop LittleFS, rezervacija pomnilnika) in pred prvim merilnim oknom spi še
+# SPANJE_S (10 s): prvo okno se začne najprej okoli 20 s po vklopu. Visoka moč,
+# ki se konča v prvih 15 s posnetka, je zato zagon ESP32 ali začetek seje (ne
+# glede na trajanje) in ni merilno okno.
+ZAGON_ESP32_DO_S = 15.0
+
+
 def najdi_okna(t, p, n):
     """Poišče intervale visoke moči s HISTEREZO: interval se začne, ko moč
     preseže prag vstopa, in konča, ko pade pod (nižji) prag izstopa. Šum
@@ -957,7 +1019,11 @@ def najdi_okna(t, p, n):
     ESP32, pisanje v flash); vrnejo se posebej in se izpišejo v okna.csv.
     Funkcija NIČESAR ne zavrže tiho in ničesar ne popravlja.
 
-    Vrne slovar: okna, kratki, vstop, izstop, rob, nizka, visoka (moči v W)."""
+    Intervali, ki se končajo v prvih ZAGON_ESP32_DO_S sekundah posnetka, so
+    zagon ESP32 (vrnejo se kot "zagon").
+
+    Vrne slovar: okna, kratki, zagon, vstop, izstop, rob, nizka, visoka (moči
+    v W) in odprt."""
     if len(t) != len(p) or len(t) < 2:
         raise NapakaAnalize("Sled moči je prazna ali ima različno število časov in vzorcev.")
     if any(tb <= ta for ta, tb in zip(t, t[1:])):
@@ -987,23 +1053,51 @@ def najdi_okna(t, p, n):
             j -= 1
         return t[k - 1] + 0.5 * (t[k] - t[k - 1])     # ni prečkanja: sredina odseka
 
-    if p[0] > vstop:
-        raise NapakaAnalize("Sled se začne sredi intervala visoke moči; začetek prvega okna "
-                            "ni posnet.")
-    intervali, v_oknu, zacetek, zadnji = [], False, None, 0
+    # Sled se lahko začne z visoko močjo: snemanje začne takoj po vklopu izhoda,
+    # ko se ESP32 zaganja (in se polnijo kondenzatorji). Tak začetni interval ni
+    # merilno okno (glej ZAGON_ESP32_DO_S); če traja dlje, začetek okna ni posnet.
+    intervali, zadnji = [], 0
+    v_oknu, zacetek, zacetni = (True, t[0], True) if p[0] > vstop else (False, None, False)
     for k in range(1, len(p)):
         if not v_oknu and p[k - 1] <= vstop < p[k]:
             zacetek, v_oknu, zadnji = cas_roba(k, True, zadnji), True, k
         elif v_oknu and p[k - 1] > izstop >= p[k]:
-            intervali.append((zacetek, cas_roba(k, False, zadnji)))
-            v_oknu, zadnji = False, k
-    if v_oknu:
+            konec_i = cas_roba(k, False, zadnji)
+            if zacetni and konec_i > t[0] + ZAGON_ESP32_DO_S:
+                raise NapakaAnalize("Sled se začne sredi intervala visoke moči; začetek prvega "
+                                    "okna ni posnet.")
+            intervali.append((zacetek, konec_i))
+            v_oknu, zadnji, zacetni = False, k, False
+    # Interval visoke moči, ki se ne konča do konca posnetka, se vrne posebej
+    # ("odprt"); klicatelj odloči, ali je to napaka (snemanje prezgodaj
+    # ustavljeno) ali izpis po koncu seje.
+    odprt = (zacetek, t[-1]) if v_oknu else None
+    zagon = [z for z in intervali if z[1] <= t[0] + ZAGON_ESP32_DO_S]
+    ostali = [z for z in intervali if z[1] > t[0] + ZAGON_ESP32_DO_S]
+    okna = [z for z in ostali if z[1] - z[0] >= n["min_trajanje_okna_s"]]
+    kratki = [z for z in ostali if z[1] - z[0] < n["min_trajanje_okna_s"]]
+    return {"okna": okna, "kratki": kratki, "zagon": zagon, "vstop": vstop, "izstop": izstop,
+            "rob": rob,
+            "nizka": nizka, "visoka": visoka, "odprt": odprt}
+
+
+def odprt_konec(najdeno, param):
+    """Odprt zadnji interval visoke moči (glej najdi_okna). Pri končani seji
+    (stanje = koncan) je to ESP32 po koncu seje: stari program je globoko
+    spanje končal po 1 s (časovnik lahkega spanja je ostal vir bujenja), se
+    znova zagnal in buden izpisoval zapise. Tak interval ni merilno okno; o
+    tem se izpiše opomba. Pri nekončani seji je to napaka (snemanje je bilo
+    ustavljeno prezgodaj)."""
+    od = najdeno["odprt"]
+    if od is None:
+        return None
+    if param.get("stanje") != "koncan":
         raise NapakaAnalize(f"Sled se konča sredi intervala visoke moči (začetek pri "
-                            f"{zacetek:.2f} s); snemanje je bilo prekinjeno prezgodaj.")
-    okna = [z for z in intervali if z[1] - z[0] >= n["min_trajanje_okna_s"]]
-    kratki = [z for z in intervali if z[1] - z[0] < n["min_trajanje_okna_s"]]
-    return {"okna": okna, "kratki": kratki, "vstop": vstop, "izstop": izstop, "rob": rob,
-            "nizka": nizka, "visoka": visoka}
+                            f"{od[0]:.2f} s); snemanje je bilo prekinjeno prezgodaj.")
+    print(f"OPOMBA: zadnji interval visoke moči ({od[0]:.1f} s do konca posnetka, "
+          f"{od[1] - od[0]:.0f} s) je po koncu seje (ESP32 se je po globokem spanju znova "
+          "zagnal in izpisoval zapise). Ni merilno okno; v okna.csv je označen 'po_koncu_seje'.")
+    return od
 
 
 def upari_okna(okna, rez, spanje_s, po_oknu_s, n):
@@ -1064,8 +1158,9 @@ def integriraj(t, p, t0, t1):
     """Trapezna integracija moči na [t0, t1] (robova interpolirana)."""
     if t1 <= t0:
         return 0.0
+    i0, i1 = bisect.bisect_right(t, t0), bisect.bisect_left(t, t1)   # t0 < t[i] < t1
     tocke = [(t0, interpoliraj(t, p, t0))]
-    tocke += [(ti, pi) for ti, pi in zip(t, p) if t0 < ti < t1]
+    tocke += list(zip(t[i0:i1], p[i0:i1]))
     tocke += [(t1, interpoliraj(t, p, t1))]
     return sum(0.5 * (pa + pb) * (tb - ta)
                for (ta, pa), (tb, pb) in zip(tocke, tocke[1:]))
@@ -1084,7 +1179,7 @@ def energija_okna(t, p, t0, t1, cas_esp_s, n, oznaka="okno"):
     Okno, v katerem je znotraj robov manj kot min_vzorcev_E2 vzorcev,
     sproži napako (E2 ne bi bila zanesljiva)."""
     a, b = t0 + n["rob_E2_s"], t1 - n["rob_E2_s"]
-    notranji = sum(1 for ti in t if a <= ti <= b)
+    notranji = bisect.bisect_right(t, b) - bisect.bisect_left(t, a)
     if b <= a or notranji < n["min_vzorcev_E2"]:
         raise NapakaAnalize(f"{oznaka}: znotraj robov ({n['rob_E2_s']} s) je samo {notranji} "
                             f"vzorcev (potrebnih {n['min_vzorcev_E2']}); okno traja "
@@ -1094,7 +1189,7 @@ def energija_okna(t, p, t0, t1, cas_esp_s, n, oznaka="okno"):
 
 
 def povprecje(t, p, t0, t1):
-    v = [pi for ti, pi in zip(t, p) if t0 <= ti <= t1]
+    v = p[bisect.bisect_left(t, t0):bisect.bisect_right(t, t1)]
     return sum(v) / len(v) if v else NAN
 
 
@@ -1347,6 +1442,7 @@ def _analiza(args, mapa, nast):
                             nast["plosca"])
     preveri_zapise(param, rez, velj_n, okna_n["toleranca_premora_s"])
     najdeno = najdi_okna(t, p, okna_n)
+    po_koncu = odprt_konec(najdeno, param)
     zagoni, zavrzeni = najdeno["okna"], najdeno["kratki"]
     prag, nizka, visoka = najdeno["rob"], najdeno["nizka"], najdeno["visoka"]
     # Vsi najdeni intervali gredo v okna.csv PRED parjenjem, da jih je ob
@@ -1354,7 +1450,9 @@ def _analiza(args, mapa, nast):
     with open(os.path.join(mapa, "okna.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["vrsta", "t_zacetek_s", "t_konec_s", "trajanje_s", "P_povp_mW"])
-        for vrsta, sez in (("okno", zagoni), ("kratek_interval", zavrzeni)):
+        for vrsta, sez in (("okno", zagoni), ("kratek_interval", zavrzeni),
+                           ("zagon_esp32", najdeno["zagon"]),
+                           ("po_koncu_seje", [po_koncu] if po_koncu else [])):
             for a, b in sez:
                 w.writerow([vrsta, f"{a:.4f}", f"{b:.4f}", f"{b - a:.4f}",
                             f"{povprecje(t, p, a, b) * 1000:.3f}"])
@@ -1861,6 +1959,7 @@ def analiza_samopreizkusa(args):
         raise NapakaAnalize(f"Pričakovane 4 stalne obremenitve in 3 delovni cikli, najdeno "
                             f"{len(stalne)} in {len(cikli)}; samopreizkus se ni končal.")
     najdeno = najdi_okna(t, p, nast["okna"])
+    odprt_konec(najdeno, param)
     if not najdeno["okna"]:
         raise NapakaAnalize("V sledi ni nobenega okna visoke moči.")
     zamik = najdeno["okna"][0][0] - stalne[0]["t_zacetek_us"] / 1e6

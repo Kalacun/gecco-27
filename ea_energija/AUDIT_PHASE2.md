@@ -126,3 +126,25 @@ was not available to me). The end rule is now relative to the board's own sleep 
 5-sample running median + 10 mA), refuses to end across connection gaps, and is covered by
 synthetic tests including a 26 mA sleep floor. The trace reader skips an unfinished last line
 left by a killed recorder and says so. Firmware unchanged.
+
+**Correction (same day, after the campaign).** The 20 mA threshold was not the cause: the board's
+sleep current is 9.3 mA. The firmware enabled a timer wakeup for light sleep and never cleared it,
+so the final `esp_deep_sleep_start()` woke after 1 s; the board rebooted into the record dump and
+stayed awake (~49 mA) on RIGOL power. All records were already written, so the campaign data are
+unaffected. Fixed with `esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL)` before every deep
+sleep (compiled, not yet run on the device). Two analysis fixes followed: (1) on Windows with
+Python < 3.13 `time.monotonic()` ticks every 15.6 ms while the DP821A answered at ~265 Hz, so many
+consecutive samples share a timestamp; the reader now averages such groups (keeping min/max voltage
+for the CV rule) and reports how many, and the recorder uses `time.perf_counter()`; (2) a final open
+high-power interval in a completed session is labelled `po_koncu_seje` instead of stopping the
+analysis, and per-window work uses binary search (a 2.2 M-row synthetic campaign analyses in ~5 s).
+
+**After W5 on the campaign (624/624 records).** Rosenbrock D=10 FE runs last ~0.8 s (cell
+median 0.794 s), below the window minimum of 1.5 s. Changed in `analiza_nastavitve.json`, with
+the reason recorded in its `spremembe` field, before any energy result was computed:
+`min_trajanje_okna_s` 1.5 → 0.3 and `rob_E2_s` 0.5 → 0.2. To keep start-up activity out of the
+window count independently of that minimum, any high-power interval ending within the first 15 s
+of the trace (boot, session start; the first window starts ≥ 20 s after power-on) is labelled
+`zagon_esp32`, and a trace may now begin inside the boot burst. The flash-write burst after each
+window is assumed shorter than 0.3 s (unverified on the real trace; the window/record count check
+would stop the analysis if not).

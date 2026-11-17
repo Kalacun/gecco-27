@@ -1,5 +1,8 @@
 {
   "razlicica": 1,
+  "spremembe": [
+    "2026-11-17 (pred analizo energije kampanje, po povzetku zapisov W5): okna.min_trajanje_okna_s 1.5 -> 0.3 in energija.rob_E2_s 0.5 -> 0.2. Razlog: zagoni Rosenbrock D=10 v nacinu FE trajajo okoli 0.8 s (mediana 0.794 s), kar je pod staro mejo okna in krajse od dveh starih robov E2; RIGOL je odgovarjal s priblizno 265 Hz. Pisanje v flash po vsakem oknu je kratek skok, ki ostane pod 0.3 s (nepreverjeno na sledi)."
+  ],
   "opis": "Vsi pragovi in tolerance analize (zajem.py analiza). Datoteka se ob vsaki analizi skopira v mapo z rezultati. Vrednosti dolocite PRED ogledom rezultatov.",
   "okna": {
     "raven_nizka_kvantil": 0.03,
@@ -9,12 +12,12 @@
     "prag_izstop_delez": 0.4,
     "prag_vstop_mW": null,
     "prag_izstop_mW": null,
-    "min_trajanje_okna_s": 1.5,
+    "min_trajanje_okna_s": 0.3,
     "toleranca_trajanja_s": 0.5,
     "toleranca_premora_s": 1.5
   },
   "energija": {
-    "rob_E2_s": 0.5,
+    "rob_E2_s": 0.2,
     "min_vzorcev_E2": 5,
     "toleranca_E1_E2_rel": 0.02
   },

@@ -16,6 +16,7 @@ import io
 import json
 import os
 import random
+import shutil
 import sys
 import tempfile
 import unittest
@@ -226,7 +227,7 @@ class TestOkna(Osnova):
 
     def test_kratek_interval_ni_okno_in_je_zapisan_v_okna_csv(self):
         okna = sinteticna_okna(6)
-        skok = (3.0, 3.6)                       # npr. zagon ESP32: 0,6 s visoke moči
+        skok = (28.5, 28.7)                     # npr. pisanje v flash: 0,2 s visoke moči
         t, p = sinteticna_sled([skok] + okna)
         self.pripravi(okna, sled=(t, p))
         izhod, _ = pozeni_analizo(self.mapa)
@@ -277,8 +278,85 @@ class TestOkna(Osnova):
         okna = sinteticna_okna(3)
         t, p = sinteticna_sled(okna)
         k = next(k for k, ti in enumerate(t) if ti > okna[2][0] + 5.0)
+        najdeno = zajem.najdi_okna(t[:k], p[:k], nastavitve()["okna"])
+        self.assertEqual(len(najdeno["okna"]), 2)
+        self.assertAlmostEqual(najdeno["odprt"][0], okna[2][0], delta=0.2)
         with self.assertRaisesRegex(zajem.NapakaAnalize, "konča sredi"):
-            zajem.najdi_okna(t[:k], p[:k], nastavitve()["okna"])
+            zajem.odprt_konec(najdeno, {"stanje": "prekinjen"})
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(zajem.odprt_konec(najdeno, {"stanje": "koncan"}), najdeno["odprt"])
+
+    def test_zagon_esp32_na_zacetku_sledi_ni_okno(self):
+        """Snemanje začne ob vklopu izhoda; prvi vzorci so med zagonom ESP32."""
+        okna = sinteticna_okna(6)
+        for zagon in [(0.0, 0.6), (10.2, 10.9)]:                    # zagon; začetek seje
+            t, p = sinteticna_sled([zagon] + okna)
+            self.pripravi(okna, sled=(t, p))
+            izhod, _ = pozeni_analizo(self.mapa)
+            vrste = [v["vrsta"] for v in beri_csv(os.path.join(izhod, "okna.csv"))]
+            self.assertEqual((vrste.count("okno"), vrste.count("zagon_esp32"),
+                              vrste.count("kratek_interval")), (6, 1, 0), zagon)
+        t, p = sinteticna_sled([(0.0, 16.0)] + okna)                # dolgo: ni dovoljeno
+        with self.assertRaisesRegex(zajem.NapakaAnalize, "začne sredi"):
+            zajem.najdi_okna(t, p, nastavitve()["okna"])
+
+    def test_izpis_po_koncu_seje_ni_okno(self):
+        """Stari program: po zadnjem zagonu se ESP32 po 1 s globokega spanja
+        znova zažene in buden izpisuje zapise do konca posnetka (17. 11. 2026)."""
+        okna = sinteticna_okna(6)
+        e = okna[-1][1]
+        t, p = sinteticna_sled(okna + [(e + 2.5, e + 400.0)], konec_po_s=0.0)
+        self.pripravi(okna, sled=(t, p))
+        izhod, izpis = pozeni_analizo(self.mapa)
+        self.assertIn("po koncu seje", izpis)
+        vrste = [v["vrsta"] for v in beri_csv(os.path.join(izhod, "okna.csv"))]
+        self.assertEqual(vrste.count("okno"), 6)
+        self.assertEqual(vrste.count("po_koncu_seje"), 1)
+        self.assertEqual(len(beri_csv(os.path.join(izhod, "energija.csv"))), 6)
+
+    def test_snemanje_ustavljeno_med_zadnjim_oknom_ostane_napaka(self):
+        okna = sinteticna_okna(6)
+        t, p = sinteticna_sled(okna)
+        k = next(k for k, ti in enumerate(t) if ti > okna[5][0] + 3.0)
+        self.pripravi(okna, sled=(t[:k], p[:k]))
+        with self.assertRaisesRegex(zajem.NapakaAnalize, "5 merilnih oken"):
+            pozeni_analizo(self.mapa)
+
+    def test_vzorci_z_enakim_casom_so_povpreceni(self):
+        """Python < 3.13 na Windows: ura ima ločljivost 15,6 ms, RIGOL pa
+        odgovarja hitreje, zato ima več zaporednih vzorcev enak čas."""
+        okna = sinteticna_okna(6)
+        t, p = sinteticna_sled(okna)
+        self.pripravi(okna, sled=(t, p))
+        izhod1, _ = pozeni_analizo(self.mapa)
+        e1 = [float(v["E2_J"]) for v in beri_csv(os.path.join(izhod1, "energija.csv"))]
+        for ime in os.listdir(self.mapa):
+            if ime.startswith("analiza_"):
+                shutil.rmtree(os.path.join(self.mapa, ime))
+        t4 = [ti for ti in t for _ in range(4)]
+        p4 = [pi for pi in p for _ in range(4)]
+        self.pripravi(okna, sled=(t4, p4))
+        izhod2, izpis = pozeni_analizo(self.mapa)
+        self.assertIn("enak čas kot prejšnji", izpis)
+        e2 = [float(v["E2_J"]) for v in beri_csv(os.path.join(izhod2, "energija.csv"))]
+        for a, b in zip(e1, e2):
+            self.assertAlmostEqual(a, b, places=9)
+
+    def test_napetost_zunaj_meje_v_zdruzeni_skupini_se_vidi(self):
+        okna = sinteticna_okna(3)
+        t, p = sinteticna_sled(okna)
+        k = next(k for k, ti in enumerate(t) if ti > okna[1][0] + 3.0)
+        t2 = t[:k] + [t[k]] + t[k:]
+        p2 = p[:k] + [p[k]] + p[k:]
+        u2 = [3.3] * len(t2)
+        u2[k] = 3.1                                   # en vzorec v skupini z enakim časom
+        pot = os.path.join(self.mapa, "rigol.csv")
+        zapisi_sled(pot, t2, p2, u=u2)
+        with redirect_stdout(io.StringIO()):
+            sled = zajem.preberi_sled(pot)
+        n = nastavitve()["veljavnost"]
+        self.assertIn("ni_CV_v_oknu", zajem.napake_sledi_v_oknu(sled, okna[1][0], okna[1][1], n))
+        self.assertEqual(zajem.napake_sledi_v_oknu(sled, okna[0][0], okna[0][1], n), [])
 
     def test_nezaporedni_zapisi_ustavijo_analizo(self):
         okna = sinteticna_okna(6)
@@ -1187,7 +1265,7 @@ class TestSnemanje(Osnova):
 
     def test_posneta_sled_gre_skozi_analizo(self):
         """Zapis, ki ga piše snemanje, analiza prebere (isti stolpci, sredina poizvedbe)."""
-        r = LazniRigol(visok=(5.0, 15.0))
+        r = LazniRigol(visok=(25.0, 35.0))      # prvo okno najprej ~20 s po vklopu
         self.posnemi(r)
         t, p = zajem.preberi_rigol(os.path.join(self.seja, "rigol.csv"))
         okna = zajem.najdi_okna(t, p, nastavitve()["okna"])["okna"]
