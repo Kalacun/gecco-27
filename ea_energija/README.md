@@ -1,5 +1,10 @@
 # Energija kot zaustavitveni pogoj: DE, jDE in L-SHADE na ESP32
 
+> **Zastarelo (2026-11-16).** Postopek, ukazi in nastavitve v tej datoteki so izpred revizije.
+> Veljavna navodila so v `ea_energija/LAB_GUIDE.md`. Opis strojne opreme še velja; pošiljanje
+> prek WiFi, program `test_veriga`, omejitev 300 mA, priložena stara koda in stare izhodne
+> datoteke ne veljajo več.
+
 Merilni poskus porabe električne energije evolucijskih algoritmov na mikrokontrolerju ESP32-WROOM. ESP32 izvaja klasični DE, jDE in L-SHADE na Rastriginovi ali Rosenbrockovi funkciji, napajalnik RIGOL pa meri moč. Python skripta iz posnetka toka izračuna energijo vsakega zagona, energijo do cilja, energijo na evalvacijo in konvergenco glede na porabljeno energijo ter izvede statistične primerjave.
 
 ---

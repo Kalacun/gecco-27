@@ -1,0 +1,84 @@
+{
+  "razlicica": 1,
+  "opis": "Vsi pragovi in tolerance analize (zajem.py analiza). Datoteka se ob vsaki analizi skopira v mapo z rezultati. Vrednosti dolocite PRED ogledom rezultatov.",
+  "okna": {
+    "raven_nizka_kvantil": 0.03,
+    "raven_vrh_kvantil": 0.99,
+    "raven_meja_delez": 0.25,
+    "prag_vstop_delez": 0.6,
+    "prag_izstop_delez": 0.4,
+    "prag_vstop_mW": null,
+    "prag_izstop_mW": null,
+    "min_trajanje_okna_s": 1.5,
+    "toleranca_trajanja_s": 0.5,
+    "toleranca_premora_s": 1.5
+  },
+  "energija": {
+    "rob_E2_s": 0.5,
+    "min_vzorcev_E2": 5,
+    "toleranca_E1_E2_rel": 0.02
+  },
+  "veljavnost": {
+    "max_vrzel_s": 1.0,
+    "U_nazivna_V": 3.3,
+    "U_toleranca_V": 0.05,
+    "ob_vrzeli": "napaka",
+    "ob_ne_CV": "napaka",
+    "zahtevaj_zapis_nacina": true,
+    "zahtevaj_popolno_sejo": true,
+    "zahtevaj_en_zagon_esp32": true,
+    "cpu_mhz": 240,
+    "preveri_izvor": true,
+    "dovoli_rocni_prevod": false,
+    "dovoli_spremembe_git": false
+  },
+  "bazna": {
+    "zacetek_po_s": 2.0,
+    "konec_pred_s": 0.5
+  },
+  "statistika": {
+    "alfa": 0.05,
+    "osamelci_z": 3.0,
+    "test": "Mann-Whitney U, dvostranski, normalna aproksimacija, povprecni rangi pri vezeh, popravek variance za vezi, popravek za zveznost 0.5",
+    "druzina_holm": "pari_algoritmov_v_eni_metriki_in_enem_poskusu",
+    "metrike_testov": [
+      "best",
+      "E2_J",
+      "E2_neto_J",
+      "uJ_na_fe"
+    ],
+    "A12": "P(vrednost prvega > vrednost drugega) + 0.5 P(enaki); < 0.5 pomeni, da ima prvi manjse vrednosti",
+    "cilji_testov": [
+      10.0,
+      1.0,
+      0.1,
+      0.01,
+      0.001,
+      0.0001
+    ],
+    "cilji_pod_natancnostjo": [
+      {
+        "funkcija": "rastrigin",
+        "cilj": 0.0001
+      }
+    ],
+    "cilji_pod_natancnostjo_opis": "Napaka enojne natancnosti na premaknjeni funkciji Rastrigin je 1.9e-5 (D=10) in 5.8e-5 (D=20), to je 19 % in 58 % cilja 1e-4. Cilj se zapise in poroca z oznako, test znacilnosti zanj se ne izvede."
+  },
+  "samopreizkus": {
+    "toleranca_rel": 0.05
+  },
+  "plosca": {
+    "fqbn_zahtevano": {
+      "CPUFreq": "240",
+      "FlashMode": "qio",
+      "FlashFreq": "80",
+      "FlashSize": "4M",
+      "PartitionScheme": "default",
+      "DebugLevel": "none",
+      "PSRAM": "disabled",
+      "LoopCore": "1",
+      "EventsCore": "1"
+    },
+    "opis": "Nastavitve plosce (meni Tools v Arduino IDE), ki jih mora vsebovati FQBN programa."
+  }
+}

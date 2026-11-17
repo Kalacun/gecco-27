@@ -1,5 +1,9 @@
 # Setup guide: hardware, Arduino IDE, and the full workflow
 
+> **Superseded (2026-11-16).** The procedure, commands and settings in this file predate the
+> audit. Use `ea_energija/LAB_GUIDE.md`. The hardware description here is still valid; the
+> WiFi upload, the `test_veriga` sketch, the 300 mA limit and the old output files are not.
+
 > **Decision: WiFi is not used.** `WIFI_POSILJANJE` stays `0`. The ESP32 is powered only by the RIGOL during the campaign. A separate PC (PyCharm, no terminal) controls and records the RIGOL; this Mac uploads the firmware and reads the ESP32's run records over USB once, after the campaign (Section 4). Sections 3, 5 and 6 (WiFi upload to succulent) are kept only for reference and can be skipped.
 
 This guide covers the measurement rig for the paper *Joules, Not Evaluations*: an ESP32-WROOM-32 powered and measured by a RIGOL bench supply. A PC connected to the RIGOL records the power trace; the ESP32's run records are read over USB after the campaign.
